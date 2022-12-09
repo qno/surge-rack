@@ -1,4 +1,4 @@
-name: Build VCV Rack Plugin
+name: CPP Checks
 on: [push, pull_request]
 
 env:
