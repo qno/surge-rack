@@ -11,7 +11,6 @@
  *
  * All source for Surge XT for VCV Rack is available at
  * https://github.com/surge-synthesizer/surge-rack/
- *
  */
 
 #ifndef XTRACK_DELAY_HPP
