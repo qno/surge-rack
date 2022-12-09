@@ -13,7 +13,7 @@ jobs:
 
   build-code-checks:
     name: code-checks
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     strategy:
       fail-fast: true
     steps:
