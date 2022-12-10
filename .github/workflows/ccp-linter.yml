@@ -1,0 +1,58 @@
+name: CPP Checks
+on: [push, pull_request]
+
+env:
+  rack-sdk-version: 2.2.1
+  rack-plugin-toolchain-dir: /home/build/rack-plugin-toolchain
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+
+  build-code-checks:
+    name: code-checks
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: true
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: recursive
+      - name: Get Rack-SDK
+        run: |
+          pushd $HOME
+          curl -o Rack-SDK.zip https://vcvrack.com/downloads/Rack-SDK-${{ env.rack-sdk-version }}-lin-x64.zip
+          unzip Rack-SDK.zip
+      - name: Run Code Checks
+        run: |
+          cmake -Bbuild -DRACK_SDK_DIR=$HOME/Rack-SDK -DCMAKE_BUILD_TYPE=DEBUG
+          cmake --build build --target xt-rack-code-checks
+
+  cpp-linter:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: recursive
+      - name: Get Rack-SDK
+        run: |
+          pushd $HOME
+          curl -o Rack-SDK.zip https://vcvrack.com/downloads/Rack-SDK-${{ env.rack-sdk-version }}-lin-x64.zip
+          unzip Rack-SDK.zip
+      - name: Create compile_commands.json
+        run: |
+          cmake -Bbuild -DRACK_SDK_DIR=$HOME/Rack-SDK -DCMAKE_BUILD_TYPE=DEBUG
+      - uses: cpp-linter/cpp-linter-action@v2
+        id: linter
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          style: file
+          database: build
+      - name: Fail fast?!
+        if: steps.linter.outputs.checks-failed > 0
+        run: echo "Some files failed the linting checks!"
+        # for actual deployment
+        # run: exit 1

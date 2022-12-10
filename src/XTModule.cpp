@@ -10,7 +10,7 @@
  * https://www.gnu.org/licenses/gpl-3.0.en.html
  *
  * All source for Surge XT for VCV Rack is available at
- * https://github.com/surge-synthesizer/surge-rack/
+ * https://github.com/surge-synthesizer/surge-rack
  */
 
 #include "XTModule.h"
