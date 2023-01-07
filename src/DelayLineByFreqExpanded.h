@@ -37,6 +37,7 @@
 
 namespace sst::surgext_rack::delay
 {
+
 struct DelayLineByFreqExpanded : modules::XTModule
 {
     static constexpr int n_mod_inputs{4};
@@ -60,7 +61,8 @@ struct DelayLineByFreqExpanded : modules::XTModule
 
         MOD_PARAM_0,
 
-        NUM_PARAMS = MOD_PARAM_0 + n_mod_params * n_mod_inputs
+        CLAMP_BEHAVIOR = MOD_PARAM_0 + n_mod_params * n_mod_inputs,
+        NUM_PARAMS
     };
     enum InputIds
     {
@@ -85,6 +87,70 @@ struct DelayLineByFreqExpanded : modules::XTModule
         NUM_LIGHTS
     };
 
+    enum ClampBehavior
+    {
+        HARD_20 = 0,
+        HARD_10,
+        HARD_5
+    } clampBehavior{HARD_10};
+    float clampLevel{10.f};
+
+    // (2^(-2/6.02))^(1/3) so a 2db range when attenuated
+    // static constexpr float attenBase{0.92611164457}, attenScale{1.0f - attenBase};
+    // x = 1-sqrt(1-(2^(-1/6.02))) so a 2db range when attenuated
+    static constexpr float attenBase{0.67021327021}, attenScale{1.0f - attenBase};
+
+    struct FBAttenPQ : rack::ParamQuantity
+    {
+        std::string getDisplayValueString() override
+        {
+            auto m = module;
+            auto p = getParam();
+            if (!m || !p)
+                return {};
+
+            auto rbr = m->params[FB_EXTEND].getValue() > 0.5;
+            auto v = getValue();
+
+            if (!rbr)
+            {
+                v = v * attenScale + attenBase;
+            }
+            // v = v * v * v;
+            v = 1 - v;
+            v = 1 - v * v;
+            if (v < 0.0001)
+                return "-inf dB";
+            auto dbv = 6.02 * std::log2(v);
+            return fmt::format("{:.4} dB", dbv);
+        }
+
+        void setDisplayValueString(std::string s) override
+        {
+            if (s.find("-inf") != std::string::npos)
+            {
+                setValue(0.f);
+                return;
+            }
+
+            auto q = std::atof(s.c_str());
+            auto v = pow(2.f, q / 6.02);
+
+            // v = pow(v, 1.0 / 3.0);
+            v = 1 - sqrt(1 - v);
+
+            auto m = module;
+            if (!m)
+                return;
+            auto rbr = m->params[FB_EXTEND].getValue() > 0.5;
+            if (!rbr)
+            {
+                v = (v - attenBase) / attenScale;
+            }
+
+            setValue(v);
+        }
+    };
     DelayLineByFreqExpanded() : XTModule()
     {
         setupSurgeCommon(NUM_PARAMS, false, false);
@@ -102,8 +168,8 @@ struct DelayLineByFreqExpanded : modules::XTModule
         configParam(VOCT_FINE_LEFT, -100, 100, 0, "Fine Left Tune", " Cents");
         configParam(VOCT_FINE_RIGHT, -100, 100, 0, "Fine Left Tune", " Cents");
 
-        configParam(FB_ATTENUATION, 0, 1, 0.98, "Feedback Attenuation");
-        configParam(FILTER_LP_CUTOFF_DIFF, -110, 0, 0, "LP Cutoff to Pitch Offset", " Semitones");
+        configParam<FBAttenPQ>(FB_ATTENUATION, 0, 1, 0.98, "Feedback Level");
+        configParam(FILTER_LP_CUTOFF_DIFF, -80, 30, 30, "LP Cutoff to Pitch Offset", " Semitones");
         configParam(FILTER_HP_CUTOFF_DIFF, -110, 0, -110, "HP Cutoff to Pitch Offset",
                     " Semitones");
         configParam(FILTER_MIX, 0, 1, 1, "Signal/Filter Wet/Dry Mix");
@@ -112,7 +178,9 @@ struct DelayLineByFreqExpanded : modules::XTModule
         configOnOff(FILTER_HP_ON, 0, "HighPass Filter Active");
 
         configSwitch(FB_EXTEND, 0, 1, 0, "Feedback Range",
-                     {"Useful Waveguide Range", "Full Range"});
+                     {"Compact Range (90-100% for Waveguide)", "Full range (0-100%)"});
+        configSwitch(CLAMP_BEHAVIOR, HARD_20, HARD_5, HARD_10, "Clamp Beeavior",
+                     {"Hard Clamp @ +/-20V", "Hard Clamp @ +/- 10V", "Hard Clamp @ +/- 5V"});
 
         for (int i = 0; i < n_mod_params * n_mod_inputs; ++i)
         {
@@ -209,7 +277,6 @@ struct DelayLineByFreqExpanded : modules::XTModule
     void process(const ProcessArgs &args) override
     {
         // auto fpuguard = sst::plugininfra::cpufeatures::FPUStateGuard();
-
         int lc = inputs[INPUT_L].getChannels();
         int rc = inputs[INPUT_R].getChannels();
 
@@ -218,12 +285,27 @@ struct DelayLineByFreqExpanded : modules::XTModule
 
         auto fbr = params[FB_EXTEND].getValue() > 0.5;
 
-        int cc = std::max({lc, rc, inputs[INPUT_VOCT].getChannels(), 1});
-        nChan = cc;
-
         if (processCount == BLOCK_SIZE)
         {
+            int cc = std::max({lc, rc, inputs[INPUT_VOCT].getChannels(), 1});
+            nChan = cc;
+
             modAssist.setupMatrix(this);
+            modAssist.updateValues(this);
+
+            auto cv = (ClampBehavior)params[CLAMP_BEHAVIOR].getValue();
+            switch (cv)
+            {
+            case HARD_20:
+                clampLevel = 20;
+                break;
+            case HARD_10:
+                clampLevel = 10;
+                break;
+            case HARD_5:
+                clampLevel = 5;
+                break;
+            }
 
             // Filter Coefficients go here
             auto tLP = params[FILTER_LP_ON].getValue() > 0.5;
@@ -272,9 +354,11 @@ struct DelayLineByFreqExpanded : modules::XTModule
 
             processCount = 0;
         }
-
-        // Do this every one so we can do like voct fm and stuff
-        modAssist.updateValues(this);
+        else
+        {
+            // Do this every one so we can do like voct fm and stuff
+            modAssist.updateValues(this);
+        }
 
         // If LC or RC are 1 we want to braodcast that input to all poly channels
         // so set up a multiplier for channel in the get below
@@ -284,10 +368,10 @@ struct DelayLineByFreqExpanded : modules::XTModule
         auto lfm = (lf == 1 ? 0 : 1);
         auto rfm = (rf == 1 ? 0 : 1);
 
-        outputs[OUTPUT_L].setChannels(cc);
-        outputs[OUTPUT_R].setChannels(cc);
+        outputs[OUTPUT_L].setChannels(nChan);
+        outputs[OUTPUT_R].setChannels(nChan);
 
-        for (int i = 0; i < cc; ++i)
+        for (int i = 0; i < nChan; ++i)
         {
             float pitch0 =
                 (modAssist.values[VOCT][i] + 5) * 12 + inputs[INPUT_VOCT].getVoltage(i) * 12;
@@ -301,8 +385,8 @@ struct DelayLineByFreqExpanded : modules::XTModule
             float tmL = storage->samplerate * n2pL - params[CORRECTION].getValue();
             float tmR = storage->samplerate * n2pR - params[CORRECTION].getValue();
 
-            tmL = std::clamp(tmL, FIRipol_N * 1.f, delayLineLength * 1.f);
-            tmR = std::clamp(tmR, FIRipol_N * 1.f, delayLineLength * 1.f);
+            tmL = std::clamp(tmL, FIRipol_N * 1.f, (delayLineLength - FIRipol_N) * 1.f);
+            tmR = std::clamp(tmR, FIRipol_N * 1.f, (delayLineLength - FIRipol_N) * 1.f);
 
             auto dl = lineL[i]->read(tmL);
             auto dr = lineR[i]->read(tmR);
@@ -313,11 +397,21 @@ struct DelayLineByFreqExpanded : modules::XTModule
                 // 0 -> .9
                 // 1 -> 1
                 // fba * 0.1 + 0.9
-                fba = std::clamp(fba * 0.1 + 0.9, 0.0, 1.0);
+                fba = std::clamp(fba * attenScale + attenBase, 0.0f, 1.0f);
             }
+            // fba = fba * fba * fba
+            auto omfba = 1.f - fba;
+            fba = 1.f - omfba * omfba;
 
             auto fbl = fba * inputs[INPUT_FBL].getVoltage(lfm * i);
             auto fbr = fba * inputs[INPUT_FBR].getVoltage(rfm * i);
+
+            float ex = inputs[INPUT_EXCITER_AMP].getVoltage(i) * 0.1;
+            if (ex > 1e-5 && inputs[INPUT_EXCITER_AMP].isConnected())
+            {
+                fbl += ex * distro(gen);
+                fbr += ex * distro(gen);
+            }
 
             if (useHP || useLP)
             {
@@ -344,15 +438,9 @@ struct DelayLineByFreqExpanded : modules::XTModule
             auto il = inputs[INPUT_L].getVoltage(lm * i) + fbl;
             auto ir = inputs[INPUT_R].getVoltage(rm * i) + fbr;
 
-            float ex = inputs[INPUT_EXCITER_AMP].getVoltage(i) * 0.1;
-            if (ex > 1e-5)
-            {
-                il += ex * distro(gen);
-                ir += ex * distro(gen);
-            }
-
-            lineL[i]->write(il);
-            lineR[i]->write(ir);
+            // avoid feedback blowouts with a hard clamp
+            lineL[i]->write(std::clamp(il, -clampLevel, clampLevel));
+            lineR[i]->write(std::clamp(ir, -clampLevel, clampLevel));
 
             if (processCount == 0)
             {

@@ -29,6 +29,19 @@ struct DelayLineByFreqExpandedWidget : widgets::XTModuleWidget
     std::array<std::array<rack::Widget *, M::n_mod_inputs>, n_fx_params> overlays;
     std::array<widgets::ModulatableKnob *, n_fx_params> underKnobs;
     std::array<widgets::ModToggleButton *, M::n_mod_inputs> toggles;
+
+    void appendModuleSpecificMenu(rack::ui::Menu *menu) override
+    {
+        if (!module)
+            return;
+
+        menu->addChild(new rack::ui::MenuSeparator);
+        menu->addChild(rack::createMenuLabel("Delay Line Limiter"));
+        addSelectionMenu(menu, module->paramQuantities[M::CLAMP_BEHAVIOR],
+                         {{"Hardclip @+/- 20V", M::ClampBehavior::HARD_20},
+                          {"Hardclip @+/- 10V", M::ClampBehavior::HARD_10},
+                          {"Hardclip @+/-  5V", M::ClampBehavior::HARD_5}});
+    }
 };
 
 struct DelayLineMeterWidget : public rack::Widget, public style::StyleParticipant
@@ -125,7 +138,7 @@ DelayLineByFreqExpandedWidget::DelayLineByFreqExpandedWidget(
         {li_t::PORT, "V/OCT", M::INPUT_VOCT, cols[0], row1 },
         {li_t::PORT, "LEFT", M::INPUT_FBL, cols[1], row1 },
         {li_t::PORT, "RIGHT", M::INPUT_FBR, cols[2], row1 },
-        {li_t::KNOB9, "ATTEN", M::FB_ATTENUATION, cols[3], row1 },
+        {li_t::KNOB9, "LEVEL", M::FB_ATTENUATION, cols[3], row1 },
         {li_t::EXTEND_LIGHT, "", M::FB_EXTEND, cols[3], row1, +1 },
         li_t::createGrouplabel("FEEDBACK INPUT", cols[1], row1, 3).withExtra("SHORTRIGHT", 1),
 
@@ -173,6 +186,7 @@ DelayLineByFreqExpandedWidget::DelayLineByFreqExpandedWidget(
     resetStyleCouplingToModule();
 }
 } // namespace sst::surgext_rack::delay::ui
+// namespace sst::surgext_rack::delay::ui
 
 // namespace sst::surgext_rack::vcf::ui
 
