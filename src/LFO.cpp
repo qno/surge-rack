@@ -285,21 +285,23 @@ struct LFOStepWidget : rack::Widget, style::StyleParticipant
         void drawButton(NVGcontext *vg)
         {
             // > in top half < in bottom
+            auto sc = 0.6;
             auto tq = box.size.y * 0.25;
             auto bq = box.size.y * 0.75;
-            auto ts = box.size.x;
+            auto ts = box.size.x * sc;
+            auto xp = box.size.x * (1 - sc) * 0.5;
 
             nvgBeginPath(vg);
-            nvgMoveTo(vg, 0, tq - ts * 0.5);
-            nvgLineTo(vg, box.size.x, tq);
-            nvgLineTo(vg, 0, tq + ts * 0.5);
+            nvgMoveTo(vg, xp, tq - ts * 0.5);
+            nvgLineTo(vg, box.size.x - xp, tq);
+            nvgLineTo(vg, xp, tq + ts * 0.5);
             nvgFillColor(vg, style()->getColor(style::XTStyle::PLOT_CURVE));
             nvgFill(vg);
 
             nvgBeginPath(vg);
-            nvgMoveTo(vg, box.size.x, bq - ts * 0.5);
-            nvgLineTo(vg, 0, bq);
-            nvgLineTo(vg, box.size.x, bq + ts * 0.5);
+            nvgMoveTo(vg, box.size.x - xp, bq - ts * 0.5);
+            nvgLineTo(vg, xp, bq);
+            nvgLineTo(vg, box.size.x - xp, bq + ts * 0.5);
             nvgFillColor(vg, style()->getColor(style::XTStyle::PLOT_CURVE));
             nvgFill(vg);
         }
@@ -1337,6 +1339,22 @@ LFOWidget::LFOWidget(LFOWidget::M *module) : XTModuleWidget()
     stepEnd->setVisible(false);
     gutterX += 35 + 3;
 
+    {
+        auto od = new widgets::OutputDecoration;
+        auto bl = layout::LayoutConstants::inputLabelBaseline_MM;
+        auto pd_MM = 0.5;
+        auto nc = 3;
+        auto c0 = 0;
+        od->box.size = rack::Vec(
+            rack::mm2px((nc - 0.2) * layout::LayoutConstants::lfoColumnWidth_MM + 2 * pd_MM), 84);
+        od->box.pos = rack::Vec(
+            rack::mm2px(layout::LayoutConstants::firstColumnCenter_MM +
+                        (4 + c0 - 0.4) * layout::LayoutConstants::lfoColumnWidth_MM - pd_MM),
+            rack::mm2px(layout::LayoutConstants::modulationRowCenters_MM[1] - 5.1 - pd_MM) -
+                7.2 * 96 / 72);
+        od->setup();
+        addChild(od);
+    }
     {
         int col = 0;
         std::vector<std::string> labv{"LFO", "EG", "LFOxEG"};

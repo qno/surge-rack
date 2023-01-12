@@ -1,18 +1,25 @@
 # Surge XT VCV Modules Changelog
 
-## 2.1 - In Pre-Beta Now (this as of 93f8cab220dbd4f1c / Dec 30)
+## 2.1 - In Beta Now (As of Jan 11, 2023 / 4d2133d)
 
 - New Modules
-    - EGxVCA (alphpa)
-    - QuadAD (beta) - four AD / AR envelopes with various settings
-    - QuadLFO (beta) - four simple LFOs with various inter-relationships
-    - Tuned Delay + - an expanded version of the Tuned Delay
+    - *EGxVCA* - a combined ADSR or DAHD envelope with a panning stereo VCA
+    - *QuadAD* - four AD / AR envelopes with various settings
+    - *QuadLFO* - four LFOs of various shapes with various inter-relationships
+    - *Tuned Delay +* - an expanded version of the Tuned Delay
        with feedback, filters, modulation targets, and more.
 
 - Module Changes
     - The *Waveshaper* has a DC Blocker. It is on by default in new instances but 
       waveshapers saved with 2.0 releases will laod with the blocker off to
       retain compatability.
+    - The *Twist Oscillator* LPG implementation fixed a variety of problems, including
+      incorrect delay scaling and over-resetting the oscillator.
+    - The *Exciter* effect correctly scales its inputs and outputs, avoiding overflows
+      and NaNs but potentially lowering the excitation level from 2.0.3.
+    - The *Delay* module allows users to select a variety of internal clipping models and 
+      the internal clipping model default is changed to a more appropriate for rack setting
+      of +/- 10v hardclip.
     - The plugin no longer ships with all the wavetables but instead only contains a basic
       subset. To restore the third party wavetables use "download extra content" in the WT or
       window wavetable menu.
@@ -30,22 +37,24 @@
     - The modulation arm button didn't consume events, leading it to work 
        inconsistently in module lock mode
     - Twist Oscillator didn't reset sample rate correctly on single process SR change
-    - Twist Oscillator LPG decay time was mis-callibrated by a factor of 1/12th
-    - The modulatino display in VCO tooltips would change when modulated
-      which is obviously incorrect! Base modulatino depths off of base
+    - The modulation display in VCO tooltips would change when modulated
+      which is obviously incorrect! Change to base modulation depths off of underlying
       value to correct, like all the other modules.
     - Modulation depth typeins for some surge quantities were scaled incorrectly.
-    - The Alias oscillator no longer allows selection of the memory locations, whic
+    - The Alias oscillator no longer allows selection of the memory locations, which
       are not useful in the rack context
+    - The ModMatrix matrix display paints negative modulations correctly.
 
 - Infrastructure and Code Cleanups
     - Skip the airwindows sub-library build in the surge dep phase since we dont use it in rack
     - Centralize some more implementations of clock UI and processing elements
-    - Upgrade all our github actions to SDK 2.2 including an ARM cross compile
+    - Upgrade all our github actions to SDK 2.2.2 including an ARM cross compile
     - Add a blank module in docs and a little script to bring it to life with a name
     - In a mis-installed SurgeXT with no wavetables, make wavetable VCO act as sine oscillator
     - Compile correctly if a build forces AVX flags
-    - Move the build to CMake
+    - The output region markers on panels are now painted in software not the SVGs.
+    - FX do not scan wavetables
+    - Move the build to CMake; Run with the 2.2.2 SDK
 
 ## 2.0.3 - Nov 26, 2022
 

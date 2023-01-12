@@ -386,7 +386,6 @@ QuadLFOWidget::QuadLFOWidget(sst::surgext_rack::quadlfo::ui::QuadLFOWidget::M *m
 
     auto bg = new widgets::Background(box.size, "QUAD LFO", "other", "FourOuts");
     addChild(bg);
-    bg->addBeta();
 
     auto portSpacing = 0.f;
 
@@ -474,6 +473,8 @@ QuadLFOWidget::QuadLFOWidget(sst::surgext_rack::quadlfo::ui::QuadLFOWidget::M *m
         }
     }
 
+    engine_t::addSingleOutputStripBackground(this, 0, 4);
+
     int kc = 0;
     for (int i = M::OUTPUT_0; i < M::OUTPUT_0 + M::n_lfos; ++i)
     {
@@ -490,6 +491,7 @@ QuadLFOWidget::QuadLFOWidget(sst::surgext_rack::quadlfo::ui::QuadLFOWidget::M *m
         addChild(lab);
         kc++;
     }
+
     resetStyleCouplingToModule();
 }
 } // namespace sst::surgext_rack::quadlfo::ui
