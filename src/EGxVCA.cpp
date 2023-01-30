@@ -52,23 +52,37 @@ struct EGxVCAWidget : public widgets::XTModuleWidget
                          {{"Attack from Zero", 0}, {"Attack from Current (Legato)", 1}});
     }
 
-    widgets::DirtyHelper<EGxVCA, false> modeDirty;
+    widgets::DirtyHelper<EGxVCA, false> modeDirty, analogDigitalDirty;
     void step() override
     {
-        if (modeDirty.dirty() && dShape && rShape)
+        if ((modeDirty.dirty() || analogDigitalDirty.dirty()) && aShape && dShape && rShape)
         {
             auto type = modeDirty.lastValue;
-            if (type == 0)
+            auto isDig = analogDigitalDirty.lastValue == 0;
+
+            if (!isDig)
             {
-                dShape->visible = true;
-                rShape->drawDirection = widgets::CurveSwitch::FULL_RELEASE;
+                aShape->visible = false;
+                dShape->visible = false;
+                rShape->visible = false;
             }
             else
             {
-                dShape->visible = false;
-                rShape->drawDirection = widgets::CurveSwitch::FULL_RELEASE;
+                aShape->visible = true;
+                rShape->visible = true;
+                if (type == 0)
+                {
+                    dShape->visible = true;
+                    rShape->drawDirection = widgets::CurveSwitch::FULL_RELEASE;
+                }
+                else
+                {
+                    dShape->visible = false;
+                    rShape->drawDirection = widgets::CurveSwitch::FULL_RELEASE;
+                }
             }
         }
+
         XTModuleWidget::step();
     }
 
@@ -172,7 +186,8 @@ struct EnvCurveWidget : rack::Widget, style::StyleParticipant
             endt = pow(2, a * sc + mn) + pow(2, d * sc + mn) + pow(2, r * sc + mn);
             auto dGate = 0.33 * endt;
             endt += dGate;
-            gt = pow(2, a * sc + mn) + pow(2, d * sc + mn) + dGate;
+            endt = std::max(0.25f, endt);
+            gt = endt - pow(2, r * sc + mn);
         }
         else
         {
@@ -186,7 +201,7 @@ struct EnvCurveWidget : rack::Widget, style::StyleParticipant
         auto gtSmp = gt * module->storage->samplerate * BLOCK_SIZE_INV;
 
         auto env = dsp::envelopes::ADSRDAHDEnvelope(module->storage.get());
-        env.attackFrom((dsp::envelopes::ADSRDAHDEnvelope::Mode)shp, 0, as, isDig);
+        env.attackFrom((dsp::envelopes::ADSRDAHDEnvelope::Mode)shp, 0, a, as, isDig);
 
         nvgBeginPath(vg);
         nvgMoveTo(vg, 0, box.size.y - 2); // that's the 0,0 point
@@ -336,6 +351,9 @@ EGxVCAWidget::EGxVCAWidget(sst::surgext_rack::egxvca::ui::EGxVCAWidget::M *m)
     modeDirty.module = m;
     modeDirty.par = M::ADSR_OR_DAHD;
 
+    analogDigitalDirty.module = m;
+    analogDigitalDirty.par = M::ANALOG_OR_DIGITAL;
+
     box.size = rack::Vec(rack::app::RACK_GRID_WIDTH * 12, rack::app::RACK_GRID_HEIGHT);
 
     auto bg = new widgets::Background(box.size, "EG x VCA", "fx", "BlankNoDisplay");
@@ -356,7 +374,7 @@ EGxVCAWidget::EGxVCAWidget(sst::surgext_rack::egxvca::ui::EGxVCAWidget::M *m)
 
     const auto dSlider = layout::LayoutConstants::columnWidth_MM * 0.5f;
 
-    const auto sliderStart = col1 + layout::LayoutConstants::columnWidth_MM * 0.25f;
+    const auto sliderStart = col0 - layout::LayoutConstants::columnWidth_MM * 0.75f;
     const auto row1 = layout::LayoutConstants::vcoRowCenters_MM[1];
     const auto row2 = layout::LayoutConstants::vcoRowCenters_MM[0];
     const auto row3 = layout::LayoutConstants::vcoRowCenters_MM[0] - (row1 - row2);
@@ -366,9 +384,9 @@ EGxVCAWidget::EGxVCAWidget(sst::surgext_rack::egxvca::ui::EGxVCAWidget::M *m)
     // fixme use the enums
     // clang-format off
     std::vector<li_t> layout = {
-        {li_t::KNOB12, "LEVEL", M::LEVEL, col0, rowS},
-        {li_t::KNOB9, "PAN", M::PAN, col1, row3},
-        {li_t::KNOB9, "RESP", M::RESPONSE, col1, row2},
+        {li_t::KNOB12, "LEVEL", M::LEVEL, col3, rowS},
+        {li_t::KNOB9, "PAN", M::PAN, col2, row3},
+        {li_t::KNOB9, "RESP", M::RESPONSE, col2, row2},
 
         {li_t::PORT, "GATE", M::GATE_IN, col0, row1},
         {li_t::PORT, "CLOCK", M::CLOCK_IN, col1, row1},

@@ -238,11 +238,13 @@ struct XTModule : public rack::Module
         json_t *rootJ = json_object();
         if (commonJ)
         {
-            json_object_set(rootJ, "xtshared", commonJ);
+            json_object_set_new(rootJ, "xtshared", commonJ);
+            commonJ = nullptr;
         }
         if (moduleSpecificJ)
         {
-            json_object_set(rootJ, "modulespecific", moduleSpecificJ);
+            json_object_set_new(rootJ, "modulespecific", moduleSpecificJ);
+            moduleSpecificJ = nullptr;
         }
         return rootJ;
     }
@@ -1004,7 +1006,7 @@ template <typename T> struct ClockProcessor
 
     void toJson(json_t *onto)
     {
-        json_object_set(onto, "clockStyle", json_integer((int)clockStyle));
+        json_object_set_new(onto, "clockStyle", json_integer((int)clockStyle));
     }
 
     void fromJson(json_t *modJ)
@@ -1155,6 +1157,14 @@ struct CTEnvTimeParamQuantity : rack::ParamQuantity, modules::CalculatedName
     {
         auto v = getValue() * (etMax - etMin) + etMin;
 
+        if (getValue() < 0.0001)
+        {
+            std::string mv;
+            if (getMinString(mv))
+            {
+                return mv;
+            }
+        }
         if (isTempoSync())
         {
             return temposync_support::temposyncLabel(v);
@@ -1170,6 +1180,7 @@ struct CTEnvTimeParamQuantity : rack::ParamQuantity, modules::CalculatedName
         setValue(vn);
     }
 
+    virtual bool getMinString(std::string &s) { return false; }
     virtual bool isTempoSync() { return false; }
 };
 
