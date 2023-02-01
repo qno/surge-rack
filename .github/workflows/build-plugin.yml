@@ -120,6 +120,9 @@ jobs:
       - name: Install Dependencies
         run: |
           apt update && apt install -y jq cmake build-essential git curl unzip zstd pkg-config
+          which git
+          git --version
+          env
       - name: Get Rack-SDK
         run: |
           pushd $HOME
