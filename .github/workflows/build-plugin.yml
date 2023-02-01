@@ -112,12 +112,11 @@ jobs:
       - name: Install Dependencies
         run: |
           apt update && apt install -y jq cmake build-essential git curl unzip zstd pkg-config
-          which git
           git --version
-          env
       - uses: actions/checkout@v3
-        with:
-          submodules: recursive
+      - name: Checkout submodules
+        run: |
+          git submodule update --init --recursive
       - uses: actions/cache@v3
         id: plugin-version-cache
         with:
