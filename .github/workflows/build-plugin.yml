@@ -111,7 +111,7 @@ jobs:
     steps:
       - name: Install Dependencies
         run: |
-          apt update && apt install -y software-properties-common dirmngr ca-certificates apt-transport-https || true
+          apt update && apt install -y software-properties-common  python-gi python-requests python3-requests python3-requests dirmngr ca-certificates apt-transport-https || true
           add-apt-repository ppa:git-core/ppa
           apt update && apt install -y jq build-essential git wget curl unzip zstd pkg-config
           wget https://github.com/Kitware/CMake/releases/download/v3.25.2/cmake-3.25.2-linux-x86_64.sh
