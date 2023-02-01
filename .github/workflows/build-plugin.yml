@@ -97,8 +97,8 @@ jobs:
           path: dist/*.vcvplugin
           name: mac-${{ matrix.platform }}
           
-  build-ubuntu-native:
-    name: build-ubuntu-native
+  build-native:
+    name: build-native
     needs: modify-plugin-version
     runs-on: ubuntu-latest
     container:
@@ -111,7 +111,6 @@ jobs:
     steps:
       - name: Install Dependencies
         run: |
-          apt update && apt install -y software-properties-common
           add-apt-repository ppa:git-core/ppa
           apt update && apt install -y jq build-essential git wget curl unzip zstd pkg-config
           wget https://github.com/Kitware/CMake/releases/download/v3.25.2/cmake-3.25.2-linux-x86_64.sh
