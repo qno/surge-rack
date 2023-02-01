@@ -107,7 +107,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu:18.04, ubuntu:20.04, ubuntu:22.04, ubuntu:23.04, linuxmintd/mint19-amd64]
+        os: [ubuntu:18.04, ubuntu:20.04, ubuntu:22.04, ubuntu:23.04, linuxmintd/mint19-amd64, linuxmintd/mint19.3-amd64]
     steps:
       - name: Install Dependencies
         run: |
