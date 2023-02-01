@@ -119,7 +119,7 @@ jobs:
           key: ${{ github.sha }}-${{ github.run_id }}
       - name: Install Dependencies
         run: |
-          apt update && apt install -y jq cmake build-essential
+          apt update && apt install -y jq cmake build-essential git curl unzip zstd pkg-config
       - name: Get Rack-SDK
         run: |
           pushd $HOME
