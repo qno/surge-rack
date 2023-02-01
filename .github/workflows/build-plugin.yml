@@ -116,9 +116,9 @@ jobs:
       - uses: actions/checkout@v3
       - name: Checkout submodules
         run: |
-          pushd $GITHUB_WORKSPACE
+          pwd 
+          ls -lisah
           git submodule update --init --recursive
-          popd
       - uses: actions/cache@v3
         id: plugin-version-cache
         with:
