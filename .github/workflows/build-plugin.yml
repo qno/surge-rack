@@ -102,12 +102,12 @@ jobs:
     needs: modify-plugin-version
     runs-on: ubuntu-latest
     container:
-      image: ubuntu:${{ matrix.tag }}
+      image: ${{ matrix.os }}
       options: --user root
     strategy:
       fail-fast: false
       matrix:
-        tag: [18.04, 20.04, 22.04, 23.04]
+        os: [ubuntu:18.04, ubuntu:20.04, ubuntu:22.04, ubuntu:23.04, linuxmintd/mint19-amd64]
     steps:
       - name: Install Dependencies
         run: |
@@ -118,6 +118,8 @@ jobs:
           sh cmake-3.25.2-linux-x86_64.sh --prefix=/usr/local --skip-license
       - name: Dump infos
         run: |
+          uname -a
+          lsb_release -a
           git --version
           cmake --version
           gcc --version
@@ -134,7 +136,7 @@ jobs:
       - name: Get Rack-SDK
         run: |
           pushd $HOME
-          curl -o Rack-SDK.zip https://vcvrack.com/downloads/Rack-SDK-2.2.1-lin-x64.zip
+          curl -o Rack-SDK.zip https://vcvrack.com/downloads/Rack-SDK-2.2.3-lin-x64.zip
           unzip Rack-SDK.zip
       - name: Build plugin
         run: |
