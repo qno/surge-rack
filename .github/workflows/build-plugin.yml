@@ -113,8 +113,16 @@ jobs:
         run: |
           apt update && apt install -y software-properties-common
           add-apt-repository ppa:git-core/ppa
-          apt update && apt install -y jq cmake build-essential git curl unzip zstd pkg-config
+          apt update && apt install -y jq build-essential git curl unzip zstd pkg-config
+          wget https://github.com/Kitware/CMake/releases/download/v3.25.2/cmake-3.25.2-linux-x86_64.sh
+          sh cmake-3.25.2-linux-x86_64.sh --prefix=/usr/local --skip-license
+      - name: Dump infos
+        run: |
           git --version
+          cmake --version
+          gcc --version
+          g++ --version
+          gcc -dM -E - < /dev/null
       - uses: actions/checkout@v3
         with:
           submodules: recursive
