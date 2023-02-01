@@ -117,15 +117,12 @@ jobs:
       - name: Dump infos
         run: |
           uname -a
-          lsb_release -a
           git --version
           cmake --version
           gcc --version
           g++ --version
           gcc -dM -E - < /dev/null
       - uses: actions/checkout@v3
-        with:
-          submodules: recursive
       - uses: actions/cache@v3
         id: plugin-version-cache
         with:
@@ -133,6 +130,9 @@ jobs:
           key: ${{ github.sha }}-${{ github.run_id }}
       - name: Get Rack-SDK
         run: |
+          ls -lisah
+          pwd
+          git submodule update --init --recursive
           pushd $HOME
           curl -o Rack-SDK.zip https://vcvrack.com/downloads/Rack-SDK-2.2.3-lin-x64.zip
           unzip Rack-SDK.zip
