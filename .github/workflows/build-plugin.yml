@@ -111,14 +111,13 @@ jobs:
     steps:
       - name: Install Dependencies
         run: |
+          apt update && apt install -y software-properties-common
+          add-apt-repository ppa:git-core/ppa
           apt update && apt install -y jq cmake build-essential git curl unzip zstd pkg-config
           git --version
       - uses: actions/checkout@v3
-      - name: Checkout submodules
-        run: |
-          pwd 
-          ls -lisah
-          git submodule update --init --recursive
+        with:
+          submodules: recursive
       - uses: actions/cache@v3
         id: plugin-version-cache
         with:
