@@ -111,6 +111,8 @@ jobs:
     steps:
       - name: Install Dependencies
         run: |
+          apt update && apt install -y software-properties-common dirmngr ca-certificates apt-transport-https || true
+          add-apt-repository ppa:git-core/ppa
           apt update && apt install -y jq build-essential git wget curl unzip zstd pkg-config
           wget https://github.com/Kitware/CMake/releases/download/v3.25.2/cmake-3.25.2-linux-x86_64.sh
           sh cmake-3.25.2-linux-x86_64.sh --prefix=/usr/local --skip-license
@@ -123,6 +125,8 @@ jobs:
           g++ --version
           gcc -dM -E - < /dev/null
       - uses: actions/checkout@v3
+        with:
+          submodules: recursive
       - uses: actions/cache@v3
         id: plugin-version-cache
         with:
@@ -130,10 +134,6 @@ jobs:
           key: ${{ github.sha }}-${{ github.run_id }}
       - name: Get Rack-SDK
         run: |
-          ls -lisah
-          pwd
-          git config --global --add safe.directory $GITHUB_WORKSPACE
-          git submodule update --init --recursive
           pushd $HOME
           curl -o Rack-SDK.zip https://vcvrack.com/downloads/Rack-SDK-2.2.3-lin-x64.zip
           unzip Rack-SDK.zip
