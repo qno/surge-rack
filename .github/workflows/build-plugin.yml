@@ -132,6 +132,7 @@ jobs:
         run: |
           ls -lisah
           pwd
+          git config --global --add safe.directory $GITHUB_WORKSPACE
           git submodule update --init --recursive
           pushd $HOME
           curl -o Rack-SDK.zip https://vcvrack.com/downloads/Rack-SDK-2.2.3-lin-x64.zip
