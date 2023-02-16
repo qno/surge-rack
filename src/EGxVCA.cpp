@@ -148,18 +148,12 @@ struct EnvCurveWidget : rack::Widget, style::StyleParticipant
         su(EGxVCA::R_SHAPE, false);
         su(EGxVCA::ANALOG_OR_DIGITAL, false);
         su(EGxVCA::ADSR_OR_DAHD, false);
+        su(EGxVCA::FAST_OR_SLOW, false);
     }
 
-    void drawBg(NVGcontext *vg)
-    {
-        /*
-        nvgBeginPath(vg);
-        nvgStrokeColor(vg, nvgRGB(255,0,0));
-        nvgRect(vg, 0, 0, box.size.x, box.size.y);
-        nvgStroke(vg);
-         */
-    }
-    void drawCurve(NVGcontext *vg)
+    void drawBg(NVGcontext *vg) {}
+
+    template <typename env_t> void drawCurveForMode(NVGcontext *vg)
     {
         if (!module)
             return;
@@ -176,10 +170,27 @@ struct EnvCurveWidget : rack::Widget, style::StyleParticipant
         auto isDig = dirtyChecks[EGxVCA::ANALOG_OR_DIGITAL].lastValue < 0.5;
         auto shp = dirtyChecks[EGxVCA::ADSR_OR_DAHD].lastValue;
 
-        auto mx = modules::CTEnvTimeParamQuantity::etMax;
-        auto mn = modules::CTEnvTimeParamQuantity::etMin;
+        auto env = env_t(module->storage.get());
+
+        auto mx = env.etMax;
+        auto mn = env.etMin;
         auto sc = mx - mn;
         auto gt = 0.f, endt = 0.f;
+
+        // OK do a little rescaling. There's really no reason to do all those samples
+        // and the algorithms are all scale invarient under uniform time transform
+        auto totalScale = [&]() {
+            return a * sc + d * sc + r * sc + 3 * mn + (shp > 0.5 ? s * sc + mn : 0);
+        };
+        while (totalScale() > 9)
+        {
+            a -= 1 / sc;
+            d -= 1 / sc;
+            r -= 1 / sc;
+            if (shp > 0.5)
+                s -= 1 / sc;
+        }
+
         if (shp < 0.5)
         {
             // adsr
@@ -200,9 +211,7 @@ struct EnvCurveWidget : rack::Widget, style::StyleParticipant
         auto smpEvery = std::max((int)std::floor(runs / (box.size.x * 4)), 1);
         auto gtSmp = gt * module->storage->samplerate * BLOCK_SIZE_INV;
 
-        auto env = dsp::envelopes::ADSRDAHDEnvelope(module->storage.get());
-        env.attackFrom((dsp::envelopes::ADSRDAHDEnvelope::Mode)shp, 0, a, as, isDig);
-
+        env.attackFrom(0, a, as, isDig);
         nvgBeginPath(vg);
         nvgMoveTo(vg, 0, box.size.y - 2); // that's the 0,0 point
 
@@ -230,6 +239,29 @@ struct EnvCurveWidget : rack::Widget, style::StyleParticipant
         nvgFillPaint(vg, nvgLinearGradient(vg, 0, 0, 0, box.size.y * 0.9, gcp, gcn));
         nvgFill(vg);
     }
+
+    void drawCurve(NVGcontext *vg)
+    {
+        if (!module)
+            return;
+        auto slow = module->isSlow();
+        auto mode = module->getMode();
+        if (mode == 0)
+        {
+            if (slow)
+                drawCurveForMode<EGxVCA::envelopeAdsrSlow_t>(vg);
+            else
+                drawCurveForMode<EGxVCA::envelopeAdsr_t>(vg);
+        }
+        else
+        {
+            if (slow)
+                drawCurveForMode<EGxVCA::envelopeDahdSlow_t>(vg);
+            else
+                drawCurveForMode<EGxVCA::envelopeDahd_t>(vg);
+        }
+    }
+
     void onStyleChanged() override
     {
         bdw->dirty = true;
@@ -482,6 +514,15 @@ EGxVCAWidget::EGxVCAWidget(sst::surgext_rack::egxvca::ui::EGxVCAWidget::M *m)
     }
     {
         auto ads = rack::Vec(lcdB.size.x * 0.25, rack::mm2px(5.0));
+        auto adp = rack::Vec(lcdB.pos.x + lcdB.size.x * 0.75 - ads.x * 0.5 - rack::mm2px(1.5),
+                             lcdB.pos.y - rack::mm2px(0.5));
+        auto fastslow = widgets::PlotAreaToggleClick::create(adp, ads, module, M::FAST_OR_SLOW);
+        fastslow->align = widgets::PlotAreaToggleClick::CENTER;
+
+        addChild(fastslow);
+    }
+    {
+        auto ads = rack::Vec(lcdB.size.x * 0.25, rack::mm2px(5.0));
         auto adp = rack::Vec(lcdB.pos.x + rack::mm2px(1.5), lcdB.pos.y - rack::mm2px(0.5));
         auto mode = widgets::PlotAreaToggleClick::create(adp, ads, module, M::ADSR_OR_DAHD);
         mode->align = widgets::PlotAreaToggleClick::LEFT;
@@ -492,7 +533,7 @@ EGxVCAWidget::EGxVCAWidget(sst::surgext_rack::egxvca::ui::EGxVCAWidget::M *m)
         auto cs = rack::mm2px(4.5);
         auto ws = rack::mm2px(3.0);
         auto off = rack::mm2px(0.5);
-        auto x0 = lcdB.pos.x + lcdB.size.x * 0.5 - 1.5 * cs + off;
+        auto x0 = lcdB.pos.x + lcdB.size.x * 0.42 - 1.5 * cs + off;
         auto y0 = lcdB.pos.y + off + rack::mm2px(0.5);
 
         auto A = rack::createParam<widgets::CurveSwitch>(rack::Vec(x0, y0), module, M::A_SHAPE);

@@ -1092,7 +1092,7 @@ struct TypeSwappingParameterQuantity : rack::ParamQuantity, modules::CalculatedN
     {
         auto m = mode();
         auto f = impls.find(m);
-        assert(f != imps.end());
+        assert(f != impls.end());
         if (f == impls.end())
             return nullptr;
         if (f->second->module != module)
@@ -1150,7 +1150,8 @@ struct TypeSwappingParameterQuantity : rack::ParamQuantity, modules::CalculatedN
 
 struct CTEnvTimeParamQuantity : rack::ParamQuantity, modules::CalculatedName
 {
-    static constexpr float etMin{-8}, etMax{3.32192809489}; // log2(10)
+    static constexpr float defaultEtMin{-8}, defaultEtMax{3.32192809489}; // log2(10)
+    float etMin{defaultEtMin}, etMax{defaultEtMax};
 
     std::string getLabel() override { return getCalculatedName(); }
     std::string getDisplayValueString() override
@@ -1175,7 +1176,7 @@ struct CTEnvTimeParamQuantity : rack::ParamQuantity, modules::CalculatedName
     void setDisplayValueString(std::string s) override
     {
         auto q = std::atof(s.c_str());
-        auto v = log2(std::clamp(q, 0.0001, 32.));
+        auto v = log2(std::clamp(q, pow(2., etMin), pow(2., etMax)));
         auto vn = (v - etMin) / (etMax - etMin);
         setValue(vn);
     }

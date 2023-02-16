@@ -27,8 +27,10 @@
 
 #include "LayoutEngine.h"
 #include "ADSRModulationSource.h"
-#include "dsp/ADSRDAHDEnvelope.h"
-#include "dsp/PanLaws.h"
+
+#include "sst/basic-blocks/modulators/ADSREnvelope.h"
+#include "sst/basic-blocks/modulators/DAHDEnvelope.h"
+#include "sst/basic-blocks/dsp/PanLaws.h"
 
 namespace sst::surgext_rack::egxvca
 {
@@ -36,6 +38,15 @@ struct EGxVCA : modules::XTModule
 {
     static constexpr int n_mod_params{7};
     static constexpr int n_mod_inputs{4};
+
+    typedef basic_blocks::modulators::ADSREnvelope<SurgeStorage, BLOCK_SIZE> envelopeAdsr_t;
+    typedef basic_blocks::modulators::ADSREnvelope<SurgeStorage, BLOCK_SIZE,
+                                                   basic_blocks::modulators::TwoMinuteRange>
+        envelopeAdsrSlow_t;
+    typedef basic_blocks::modulators::DAHDEnvelope<SurgeStorage, BLOCK_SIZE> envelopeDahd_t;
+    typedef basic_blocks::modulators::DAHDEnvelope<SurgeStorage, BLOCK_SIZE,
+                                                   basic_blocks::modulators::TwoMinuteRange>
+        envelopeDahdSlow_t;
 
     enum ParamIds
     {
@@ -55,6 +66,7 @@ struct EGxVCA : modules::XTModule
 
         MOD_PARAM_0,
         ATTACK_FROM = MOD_PARAM_0 + n_mod_params * n_mod_inputs,
+        FAST_OR_SLOW,
         NUM_PARAMS
     };
 
@@ -83,11 +95,6 @@ struct EGxVCA : modules::XTModule
     };
 
     modules::ModulationAssistant<EGxVCA, n_mod_params, LEVEL, n_mod_inputs, MOD_INPUT_0> modAssist;
-
-    static_assert(modules::CTEnvTimeParamQuantity::etMin ==
-                  dsp::envelopes::ADSRDAHDEnvelope::etMin);
-    static_assert(modules::CTEnvTimeParamQuantity::etMax ==
-                  dsp::envelopes::ADSRDAHDEnvelope::etMax);
 
     struct DAHDPQ : modules::CTEnvTimeParamQuantity
     {
@@ -150,7 +157,13 @@ struct EGxVCA : modules::XTModule
         }
     };
 
-    struct TimePQ : modules::TypeSwappingParameterQuantity
+    struct SetMinMaxPQFeature
+    {
+        virtual ~SetMinMaxPQFeature() = default;
+        virtual void setMinMax(float min, float max) = 0;
+    };
+
+    struct TimePQ : modules::TypeSwappingParameterQuantity, SetMinMaxPQFeature
     {
         TimePQ()
         {
@@ -163,9 +176,24 @@ struct EGxVCA : modules::XTModule
                 return 0;
             return (int)std::round(module->paramQuantities[ADSR_OR_DAHD]->getValue());
         }
+        void setMinMax(float min, float max) override
+        {
+            auto m0 = dynamic_cast<modules::CTEnvTimeParamQuantity *>(impls[0].get());
+            if (m0)
+            {
+                m0->etMin = min;
+                m0->etMax = max;
+            }
+            auto m1 = dynamic_cast<modules::CTEnvTimeParamQuantity *>(impls[1].get());
+            if (m1)
+            {
+                m1->etMin = min;
+                m1->etMax = max;
+            }
+        }
     };
 
-    struct SustainOrTimePQ : modules::TypeSwappingParameterQuantity
+    struct SustainOrTimePQ : modules::TypeSwappingParameterQuantity, SetMinMaxPQFeature
     {
         SustainOrTimePQ()
         {
@@ -181,6 +209,15 @@ struct EGxVCA : modules::XTModule
             if (!module)
                 return 0;
             return (int)std::round(module->paramQuantities[ADSR_OR_DAHD]->getValue());
+        }
+        void setMinMax(float min, float max) override
+        {
+            auto m1 = dynamic_cast<modules::CTEnvTimeParamQuantity *>(impls[1].get());
+            if (m1)
+            {
+                m1->etMin = min;
+                m1->etMax = max;
+            }
         }
     };
 
@@ -232,6 +269,8 @@ struct EGxVCA : modules::XTModule
 
         configSwitch(ATTACK_FROM, 0, 1, 1, "Attack From", {"Zero", "Current Value"})
             ->randomizeEnabled = false;
+        configSwitch(FAST_OR_SLOW, 0, 1, 0, "Fast or Slow", {"Fast", "Slow"})->randomizeEnabled =
+            false;
 
         modAssist.initialize(this);
         modAssist.setupMatrix(this);
@@ -247,7 +286,10 @@ struct EGxVCA : modules::XTModule
 
     float meterLevels[MAX_POLY];
 
-    std::array<std::unique_ptr<dsp::envelopes::ADSRDAHDEnvelope>, MAX_POLY> processors;
+    std::array<std::unique_ptr<envelopeAdsr_t>, MAX_POLY> processorsAdsr;
+    std::array<std::unique_ptr<envelopeAdsrSlow_t>, MAX_POLY> processorsAdsrSlow;
+    std::array<std::unique_ptr<envelopeDahd_t>, MAX_POLY> processorsDahd;
+    std::array<std::unique_ptr<envelopeDahdSlow_t>, MAX_POLY> processorsDahdSlow;
     std::array<rack::dsp::SchmittTrigger, MAX_POLY> triggers;
     void setupSurge()
     {
@@ -255,7 +297,10 @@ struct EGxVCA : modules::XTModule
 
         for (int i = 0; i < MAX_POLY; ++i)
         {
-            processors[i] = std::make_unique<dsp::envelopes::ADSRDAHDEnvelope>(storage.get());
+            processorsAdsr[i] = std::make_unique<envelopeAdsr_t>(storage.get());
+            processorsAdsrSlow[i] = std::make_unique<envelopeAdsrSlow_t>(storage.get());
+            processorsDahd[i] = std::make_unique<envelopeDahd_t>(storage.get());
+            processorsDahdSlow[i] = std::make_unique<envelopeDahdSlow_t>(storage.get());
             doAttack[i] = false;
 
             level[i].target = 1.0;
@@ -305,8 +350,14 @@ struct EGxVCA : modules::XTModule
         clockProc.setSampleRate(APP->engine->getSampleRate());
         for (int i = 0; i < MAX_POLY; ++i)
         {
-            if (processors[i])
-                processors[i]->onSampleRateChanged();
+            if (processorsAdsr[i])
+                processorsAdsr[i]->onSampleRateChanged();
+            if (processorsDahd[i])
+                processorsDahd[i]->onSampleRateChanged();
+            if (processorsAdsrSlow[i])
+                processorsAdsrSlow[i]->onSampleRateChanged();
+            if (processorsDahdSlow[i])
+                processorsDahdSlow[i]->onSampleRateChanged();
         }
     }
     typedef modules::ClockProcessor<EGxVCA> clockProcessor_t;
@@ -317,6 +368,7 @@ struct EGxVCA : modules::XTModule
     int meterUpdateCount{0};
 
     int nChan{-1};
+    bool polyGate{false};
 
     bool doAttack[MAX_POLY];
 
@@ -333,7 +385,9 @@ struct EGxVCA : modules::XTModule
 
     float aTS{0}, dTS{0}, sTS{0}, rTS{0};
 
-    void process(const typename rack::Module::ProcessArgs &args) override
+    template <typename ENVT>
+    void processFastSlow(const typename rack::Module::ProcessArgs &args,
+                         const std::array<std::unique_ptr<ENVT>, MAX_POLY> &procs)
     {
         if (inputs[CLOCK_IN].isConnected())
             clockProc.process(this, CLOCK_IN);
@@ -347,6 +401,7 @@ struct EGxVCA : modules::XTModule
              */
             nChan = std::max({inputs[INPUT_L].getChannels(), inputs[INPUT_R].getChannels(),
                               inputs[GATE_IN].getChannels(), 1});
+            polyGate = inputs[GATE_IN].getChannels() > 1;
 
             modAssist.setupMatrix(this);
             modAssist.updateValues(this);
@@ -359,12 +414,10 @@ struct EGxVCA : modules::XTModule
 
             if (tempoSynced)
             {
-                auto r = [this](auto i) {
+                auto r = [this, &procs](auto i) {
                     auto res = temposync_support::roundTemposync(
-                        modAssist.basevalues[i] * dsp::envelopes::ADSRDAHDEnvelope::etScale +
-                        dsp::envelopes::ADSRDAHDEnvelope::etMin);
-                    res = (res - dsp::envelopes::ADSRDAHDEnvelope::etMin) /
-                          dsp::envelopes::ADSRDAHDEnvelope::etScale;
+                        procs[0]->rateFrom01(modAssist.basevalues[i]));
+                    res = procs[0]->rateTo01(res);
                     return res;
                 };
 
@@ -373,7 +426,7 @@ struct EGxVCA : modules::XTModule
                 auto tsr = storage->temposyncratio;
                 auto diff = 1 - tsr;
                 // but remember this is all scaled by etScale
-                diff = diff / dsp::envelopes::ADSRDAHDEnvelope::etScale;
+                diff = procs[0]->deltaTo01(diff);
 
                 aTS = r(EG_A) + diff;
                 dTS = r(EG_D) + diff;
@@ -390,8 +443,9 @@ struct EGxVCA : modules::XTModule
                 if (inputs[INPUT_R].isConnected())
                 {
                     // Assume stereo
-                    dsp::pan_laws::panmatrix_t pm;
-                    dsp::pan_laws::stereoEqualPower(modAssist.values[PAN][c] * 0.5 + 0.5, pm);
+                    basic_blocks::dsp::pan_laws::panmatrix_t pm;
+                    basic_blocks::dsp::pan_laws::stereoEqualPower(
+                        modAssist.values[PAN][c] * 0.5 + 0.5, pm);
                     for (int pl = 0; pl < 4; pl++)
                     {
                         pan[c][pl].setTarget(pm[pl]);
@@ -400,8 +454,9 @@ struct EGxVCA : modules::XTModule
                 else
                 {
                     // assume mono from L
-                    dsp::pan_laws::panmatrix_t pm;
-                    dsp::pan_laws::monoEqualPower(modAssist.values[PAN][c] * 0.5 + 0.5, pm);
+                    basic_blocks::dsp::pan_laws::panmatrix_t pm;
+                    basic_blocks::dsp::pan_laws::monoEqualPower(
+                        modAssist.values[PAN][c] * 0.5 + 0.5, pm);
                     for (int pl = 0; pl < 4; pl++)
                     {
                         pan[c][pl].setTarget(pm[pl]);
@@ -412,7 +467,7 @@ struct EGxVCA : modules::XTModule
 
         for (int c = 0; c < nChan; ++c)
         {
-            if (triggers[c].process(inputs[GATE_IN].getVoltage(c)))
+            if (triggers[c].process(inputs[GATE_IN].getVoltage(polyGate * c)))
             {
                 doAttack[c] = true;
             }
@@ -426,8 +481,6 @@ struct EGxVCA : modules::XTModule
         {
             if (doAttack[c])
             {
-                auto m = (dsp::envelopes::ADSRDAHDEnvelope::Mode)std::round(
-                    params[ADSR_OR_DAHD].getValue());
                 auto as = (int)std::round(params[A_SHAPE].getValue());
                 auto dig = params[ANALOG_OR_DIGITAL].getValue() < 0.5;
                 auto az = (int)std::round(params[ATTACK_FROM].getValue());
@@ -436,29 +489,23 @@ struct EGxVCA : modules::XTModule
                 {
                     av = aTS + modAssist.modvalues[EG_A][c];
                 }
-                processors[c]->attackFrom(m, az * processors[c]->output, av, as, dig);
+                procs[c]->attackFrom(az * procs[c]->output, av, as, dig);
                 doAttack[c] = false;
             }
             if (tempoSynced)
             {
-                auto m = (dsp::envelopes::ADSRDAHDEnvelope::Mode)std::round(
-                    params[ADSR_OR_DAHD].getValue());
-
                 auto av = aTS + modAssist.modvalues[EG_A][c];
                 auto dv = dTS + modAssist.modvalues[EG_D][c];
                 auto sv = sTS + modAssist.modvalues[EG_S][c];
                 auto rv = rTS + modAssist.modvalues[EG_R][c];
-                processors[c]->process(av, dv,
-                                       m == dsp::envelopes::ADSRDAHDEnvelope::ADSR_MODE
-                                           ? modAssist.values[EG_S][c]
-                                           : sv,
-                                       rv, as, ds, rs, inputs[GATE_IN].getVoltage(c) > 2);
+                procs[c]->process(av, dv, getMode() == 0 ? modAssist.values[EG_S][c] : sv, rv, as,
+                                  ds, rs, inputs[GATE_IN].getVoltage(polyGate * c) > 2);
             }
             else
             {
-                processors[c]->process(modAssist.values[EG_A][c], modAssist.values[EG_D][c],
-                                       modAssist.values[EG_S][c], modAssist.values[EG_R][c], as, ds,
-                                       rs, inputs[GATE_IN].getVoltage(c) > 2);
+                procs[c]->process(modAssist.values[EG_A][c], modAssist.values[EG_D][c],
+                                  modAssist.values[EG_S][c], modAssist.values[EG_R][c], as, ds, rs,
+                                  inputs[GATE_IN].getVoltage(polyGate * c) > 2);
             }
         }
 
@@ -467,15 +514,15 @@ struct EGxVCA : modules::XTModule
         {
             for (int i = 0; i < nChan; ++i)
             {
-                meterLevels[i] = processors[i]->output;
+                meterLevels[i] = procs[i]->output;
             }
             meterUpdateCount = 0;
         }
 
         for (int c = 0; c < nChan; ++c)
         {
-            auto o1 = processors[c]->output;
-            auto o3 = processors[c]->outputCubed;
+            auto o1 = procs[c]->output;
+            auto o3 = procs[c]->outputCubed;
             auto r = response[c].target;
             auto o = (1 - r) * o1 + r * o3;
 
@@ -489,7 +536,7 @@ struct EGxVCA : modules::XTModule
             auto nrV = rV * pan[c][1].target + lV * pan[c][3].target;
 
             outputs[ENV_OUT].setVoltage(o1 * 10, c);
-            outputs[EOC_OUT].setVoltage(processors[c]->eoc_output * 10, c);
+            outputs[EOC_OUT].setVoltage(procs[c]->eoc_output * 10, c);
             outputs[OUTPUT_L].setVoltage(nlV, c);
             outputs[OUTPUT_R].setVoltage(nrV, c);
 
@@ -502,6 +549,84 @@ struct EGxVCA : modules::XTModule
                 pan[c][q].step();
         }
         processCount++;
+    }
+
+    bool lastSlow{false};
+    bool isSlow()
+    {
+        auto s = (bool)std::round(getParam(FAST_OR_SLOW).getValue());
+        return s;
+    }
+    bool lastMode{0};
+    bool getMode()
+    {
+        auto s = (bool)std::round(getParam(ADSR_OR_DAHD).getValue());
+        return s;
+    }
+    void process(const typename rack::Module::ProcessArgs &args) override
+    {
+        auto s = isSlow();
+        if (s != lastSlow)
+        {
+            resetEnvelopes();
+            lastSlow = s;
+        }
+        auto m = getMode();
+        if (m != lastMode)
+        {
+            resetEnvelopes();
+            lastMode = m;
+        }
+        if (m == 0)
+        {
+            if (s)
+                processFastSlow(args, processorsAdsrSlow);
+            else
+                processFastSlow(args, processorsAdsr);
+        }
+        else
+        {
+            if (s)
+                processFastSlow(args, processorsDahdSlow);
+            else
+                processFastSlow(args, processorsDahd);
+        }
+    }
+
+    void resetEnvelopes()
+    {
+        for (const auto &p : processorsAdsr)
+        {
+            p->immediatelySilence();
+        }
+        for (const auto &p : processorsAdsrSlow)
+        {
+            p->immediatelySilence();
+        }
+        for (const auto &p : processorsDahd)
+        {
+            p->immediatelySilence();
+        }
+        for (const auto &p : processorsDahdSlow)
+        {
+            p->immediatelySilence();
+        }
+        auto s = isSlow();
+        for (auto pqi : {EG_A, EG_D, EG_S, EG_R})
+        {
+            auto mm = dynamic_cast<SetMinMaxPQFeature *>(paramQuantities[pqi]);
+            if (mm)
+            {
+                if (s)
+                {
+                    mm->setMinMax(envelopeAdsrSlow_t::etMin, envelopeAdsrSlow_t::etMax);
+                }
+                else
+                {
+                    mm->setMinMax(envelopeAdsr_t::etMin, envelopeAdsr_t::etMax);
+                }
+            }
+        }
     }
 
     bool tempoSynced{false};
