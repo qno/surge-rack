@@ -1,13 +1,16 @@
 /*
  * SurgeXT for VCV Rack - a Surge Synth Team product
  *
- * Copyright 2019 - 2022, Various authors, as described in the github
+ * A set of modules expressing Surge XT into the VCV Rack Module Ecosystem
+ *
+ * Copyright 2019 - 2023, Various authors, as described in the github
  * transaction log.
  *
- * SurgeXT for VCV Rack is released under the Gnu General Public Licence
- * V3 or later (GPL-3.0-or-later). The license is found in the file
- * "LICENSE" in the root of this repository or at
- * https://www.gnu.org/licenses/gpl-3.0.en.html
+ * Surge XT for VCV Rack is released under the GNU General Public License
+ * 3.0 or later (GPL-3.0-or-later). A copy of the license is in this
+ * repository in the file "LICENSE" or at:
+ *
+ * or at https://www.gnu.org/licenses/gpl-3.0.en.html
  *
  * All source for Surge XT for VCV Rack is available at
  * https://github.com/surge-synthesizer/surge-rack/
@@ -96,7 +99,7 @@ struct WaveshaperPlotWidget : public rack::widget::TransparentWidget, style::Sty
         auto fac = 2.0;
         auto inputRes = (int)box.size.x * fac;
         auto dx = 1.0 / inputRes;
-        auto cmul = module ? (style()->getWaveshaperShowsBothCurves() ? 6.0 : 4.0) : 4.0;
+        auto cmul = module ? (style()->getWaveshaperShowsBothCurves() ? 3.0 : 4.0) : 4.0;
         for (int i = 0; i < inputRes; ++i)
         {
             auto x = dx * i;

@@ -16,20 +16,12 @@
  * https://github.com/surge-synthesizer/surge-rack/
  */
 
-#ifndef SURGE_XT_RACK_SRC_VCOCONFIG_H
-#define SURGE_XT_RACK_SRC_VCOCONFIG_H
+#include "XTWidgets.h"
 
-#include "VCO.h"
-#include "vcoconfig/Classic.h"
-#include "vcoconfig/String.h"
-#include "vcoconfig/Modern.h"
-#include "vcoconfig/Wavetable.h"
-#include "vcoconfig/Window.h"
-#include "vcoconfig/Sine.h"
-#include "vcoconfig/FM2.h"
-#include "vcoconfig/FM3.h"
-#include "vcoconfig/Alias.h"
-#include "vcoconfig/SHNoise.h"
-#include "vcoconfig/Twist.h"
+#include "sst/rackhelpers/module_connector.h"
 
-#endif // SURGEXT_RACK_VCOCONFIG_HPP
+namespace sst::surgext_rack::widgets
+{
+namespace mcon = sst::rackhelpers::module_connector;
+
+} // namespace sst::surgext_rack::widgets

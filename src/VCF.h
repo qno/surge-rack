@@ -1,20 +1,23 @@
 /*
  * SurgeXT for VCV Rack - a Surge Synth Team product
  *
- * Copyright 2019 - 2022, Various authors, as described in the github
+ * A set of modules expressing Surge XT into the VCV Rack Module Ecosystem
+ *
+ * Copyright 2019 - 2023, Various authors, as described in the github
  * transaction log.
  *
- * SurgeXT for VCV Rack is released under the Gnu General Public Licence
- * V3 or later (GPL-3.0-or-later). The license is found in the file
- * "LICENSE" in the root of this repository or at
- * https://www.gnu.org/licenses/gpl-3.0.en.html
+ * Surge XT for VCV Rack is released under the GNU General Public License
+ * 3.0 or later (GPL-3.0-or-later). A copy of the license is in this
+ * repository in the file "LICENSE" or at:
+ *
+ * or at https://www.gnu.org/licenses/gpl-3.0.en.html
  *
  * All source for Surge XT for VCV Rack is available at
  * https://github.com/surge-synthesizer/surge-rack/
  */
 
-#ifndef SURGE_RACK_SURGEVCF_HPP
-#define SURGE_RACK_SURGEVCF_HPP
+#ifndef SURGE_XT_RACK_SRC_VCF_H
+#define SURGE_XT_RACK_SRC_VCF_H
 
 #include "SurgeXT.h"
 #include "XTModule.h"
@@ -22,6 +25,8 @@
 #include <cstring>
 #include "DebugHelpers.h"
 #include "globals.h"
+
+#include "sst/rackhelpers/neighbor_connectable.h"
 
 namespace sst::surgext_rack::vcf
 {
@@ -41,7 +46,7 @@ struct VCFSubTypeParamQuanity : rack::ParamQuantity
     std::string getDisplayValueString() override;
 };
 
-struct VCF : public modules::XTModule
+struct VCF : public modules::XTModule, sst::rackhelpers::module_connector::NeighborConnectable_V1
 {
     static constexpr int n_vcf_params{5};
     static constexpr int n_mod_inputs{4};
@@ -149,6 +154,16 @@ struct VCF : public modules::XTModule
 
         configBypass(INPUT_L, OUTPUT_L);
         configBypass(INPUT_R, OUTPUT_R);
+    }
+
+    std::optional<std::vector<labeledStereoPort_t>> getPrimaryInputs() override
+    {
+        return {{std::make_pair("Input", std::make_pair(INPUT_L, INPUT_R))}};
+    }
+
+    std::optional<std::vector<labeledStereoPort_t>> getPrimaryOutputs() override
+    {
+        return {{std::make_pair("Output", std::make_pair(OUTPUT_L, OUTPUT_R))}};
     }
 
     std::string getName() override { return "VCF"; }

@@ -1,71 +1,36 @@
 /*
  * SurgeXT for VCV Rack - a Surge Synth Team product
  *
- * Copyright 2019 - 2022, Various authors, as described in the github
+ * A set of modules expressing Surge XT into the VCV Rack Module Ecosystem
+ *
+ * Copyright 2019 - 2023, Various authors, as described in the github
  * transaction log.
  *
- * SurgeXT for VCV Rack is released under the Gnu General Public Licence
- * V3 or later (GPL-3.0-or-later). The license is found in the file
- * "LICENSE" in the root of this repository or at
- * https://www.gnu.org/licenses/gpl-3.0.en.html
+ * Surge XT for VCV Rack is released under the GNU General Public License
+ * 3.0 or later (GPL-3.0-or-later). A copy of the license is in this
+ * repository in the file "LICENSE" or at:
+ *
+ * or at https://www.gnu.org/licenses/gpl-3.0.en.html
  *
  * All source for Surge XT for VCV Rack is available at
  * https://github.com/surge-synthesizer/surge-rack/
  */
 
-#ifndef SURGEXT_RACK_XTWIDGETS_H
-#define SURGEXT_RACK_XTWIDGETS_H
+#ifndef SURGE_XT_RACK_SRC_XTWIDGETS_H
+#define SURGE_XT_RACK_SRC_XTWIDGETS_H
 
 #include <rack.hpp>
 #include <iostream>
 #include "XTStyle.h"
 #include "XTModule.h"
 #include "LayoutConstants.h"
+#include "sst/rackhelpers/ui.h"
+#include "sst/rackhelpers/module_connector.h"
 
 namespace sst::surgext_rack::widgets
 {
-
-struct BufferedDrawFunctionWidget : virtual rack::FramebufferWidget
-{
-    typedef std::function<void(NVGcontext *)> drawfn_t;
-    drawfn_t drawf;
-
-    struct InternalBDW : rack::TransparentWidget
-    {
-        drawfn_t drawf;
-        InternalBDW(rack::Rect box_, drawfn_t draw_) : drawf(draw_) { box = box_; }
-
-        void draw(const DrawArgs &args) override { drawf(args.vg); }
-    };
-
-    InternalBDW *kid = nullptr;
-    BufferedDrawFunctionWidget(rack::Vec pos, rack::Vec sz, drawfn_t draw_) : drawf(draw_)
-    {
-        box.pos = pos;
-        box.size = sz;
-        auto kidBox = rack::Rect(rack::Vec(0, 0), box.size);
-        kid = new InternalBDW(kidBox, drawf);
-        addChild(kid);
-    }
-};
-
-struct BufferedDrawFunctionWidgetOnLayer : BufferedDrawFunctionWidget
-{
-    int layer{1};
-    BufferedDrawFunctionWidgetOnLayer(rack::Vec pos, rack::Vec sz, drawfn_t draw_, int ly = 1)
-        : BufferedDrawFunctionWidget(pos, sz, draw_), layer(ly)
-    {
-    }
-
-    void draw(const DrawArgs &args) override { return; }
-    void drawLayer(const DrawArgs &args, int dl) override
-    {
-        if (dl == layer)
-        {
-            BufferedDrawFunctionWidget::draw(args);
-        }
-    }
-};
+using BufferedDrawFunctionWidget = sst::rackhelpers::ui::BufferedDrawFunctionWidget;
+using BufferedDrawFunctionWidgetOnLayer = sst::rackhelpers::ui::BufferedDrawFunctionWidgetOnLayer;
 
 struct DebugRect : rack::TransparentWidget
 {
@@ -638,7 +603,8 @@ struct Knob16 : KnobN
     }
 };
 
-struct Port : public rack::app::SvgPort, style::StyleParticipant
+struct Port : public sst::rackhelpers::module_connector::PortConnectionMixin<rack::app::SvgPort>,
+              style::StyleParticipant
 {
     Port() { onStyleChanged(); }
 
@@ -1935,6 +1901,17 @@ struct LCDBackground : public rack::widget::TransparentWidget, style::StyleParti
 
         auto res = new LCDBackground();
         res->setup(rack::Vec(posx, startPosY), rack::Vec(width, height));
+
+        return res;
+    }
+
+    static LCDBackground *createAtYPosition(float startY, float height, float widthInScrews = 12,
+                                            float posxDiff = 0)
+    {
+        auto width = rack::app::RACK_GRID_WIDTH * widthInScrews - 2 * (posx - posxDiff);
+
+        auto res = new LCDBackground();
+        res->setup(rack::Vec(posx - posxDiff, startY), rack::Vec(width, height));
 
         return res;
     }

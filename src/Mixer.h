@@ -1,20 +1,23 @@
 /*
  * SurgeXT for VCV Rack - a Surge Synth Team product
  *
- * Copyright 2019 - 2022, Various authors, as described in the github
+ * A set of modules expressing Surge XT into the VCV Rack Module Ecosystem
+ *
+ * Copyright 2019 - 2023, Various authors, as described in the github
  * transaction log.
  *
- * SurgeXT for VCV Rack is released under the Gnu General Public Licence
- * V3 or later (GPL-3.0-or-later). The license is found in the file
- * "LICENSE" in the root of this repository or at
- * https://www.gnu.org/licenses/gpl-3.0.en.html
+ * Surge XT for VCV Rack is released under the GNU General Public License
+ * 3.0 or later (GPL-3.0-or-later). A copy of the license is in this
+ * repository in the file "LICENSE" or at:
+ *
+ * or at https://www.gnu.org/licenses/gpl-3.0.en.html
  *
  * All source for Surge XT for VCV Rack is available at
  * https://github.com/surge-synthesizer/surge-rack/
  */
 
-#ifndef XTRACK_mixer_HPP
-#define XTRACK_mixer_HPP
+#ifndef SURGE_XT_RACK_SRC_MIXER_H
+#define SURGE_XT_RACK_SRC_MIXER_H
 
 #include "SurgeXT.h"
 #include "XTModule.h"
@@ -26,10 +29,11 @@
 
 #include "sst/basic-blocks/dsp/CorrelatedNoise.h"
 #include "CXOR.h"
+#include "sst/rackhelpers/neighbor_connectable.h"
 
 namespace sst::surgext_rack::mixer
 {
-struct Mixer : modules::XTModule
+struct Mixer : modules::XTModule, sst::rackhelpers::module_connector::NeighborConnectable_V1
 {
     static constexpr int n_mixer_params{8};
     static constexpr int n_mod_inputs{4};
@@ -116,7 +120,7 @@ struct Mixer : modules::XTModule
         // Config
         for (int i = OSC1_LEV; i <= RM2X3_LEV; ++i)
         {
-            std::string name = "Input " + std::to_string(i - OSC1_LEV + 1) + " Level";
+            std::string name = inputName(i) + " Level";
             configParam<modules::DecibelParamQuantity>(i, 0, 1, i == OSC1_LEV ? 1 : 0, name);
         }
         configParam(NOISE_COL, -1, 1, 0, "Noise Color", "%", 0, 100);
@@ -124,14 +128,14 @@ struct Mixer : modules::XTModule
 
         for (int i = OSC1_SOLO; i <= RM2x3_SOLO; ++i)
         {
-            std::string name = "Input " + std::to_string(i - OSC1_LEV + 1) + " Solo";
-            configParam(i, 0, 1, 0, name);
+            std::string name = inputName(i - OSC1_SOLO + OSC1_LEV) + " Solo";
+            configSwitch(i, 0, 1, 0, name, {"Off", "On"});
         }
 
         for (int i = OSC1_MUTE; i <= RM2x3_MUTE; ++i)
         {
-            std::string name = "Input " + std::to_string(i - OSC1_LEV + 1) + " Mute";
-            configParam(i, 0, 1, i == OSC1_MUTE ? 0 : 1, name);
+            std::string name = inputName(i - OSC1_MUTE + OSC1_LEV) + " Mute";
+            configSwitch(i, 0, 1, i == OSC1_MUTE ? 0 : 1, name, {"Off", "On"});
         }
 
         for (int i = 0; i < n_mixer_params * n_mod_inputs; ++i)
@@ -225,6 +229,27 @@ struct Mixer : modules::XTModule
         needed[osc1] = routes[osc1] || routes[r1x2];
         needed[osc2] = routes[osc2] || routes[r1x2] || routes[r2x3];
         needed[osc3] = routes[osc3] || routes[r2x3];
+    }
+
+    std::string inputName(int p)
+    {
+        switch (p)
+        {
+        case OSC1_LEV:
+            return "Input 1";
+        case OSC2_LEV:
+            return "Input 2";
+        case OSC3_LEV:
+            return "Input 3";
+        case RM1X2_LEV:
+            return "RingMod 1X2";
+        case RM2X3_LEV:
+            return "RingMod 2x3";
+        case NOISE_LEV:
+            return "Noise";
+        }
+
+        return "ERROR";
     }
 
     float modulationDisplayValue(int paramId) override
@@ -432,6 +457,18 @@ struct Mixer : modules::XTModule
         // auto-unmute-on-first-connect feature
         for (auto &ev : everConnected)
             ev = true;
+    }
+
+    std::optional<std::vector<labeledStereoPort_t>> getPrimaryInputs() override
+    {
+        return {{std::make_pair("Input 1", std::make_pair(INPUT_OSC1_L, INPUT_OSC1_R)),
+                 std::make_pair("Input 2", std::make_pair(INPUT_OSC2_L, INPUT_OSC2_R)),
+                 std::make_pair("Input 3", std::make_pair(INPUT_OSC3_L, INPUT_OSC3_R))}};
+    }
+
+    std::optional<std::vector<labeledStereoPort_t>> getPrimaryOutputs() override
+    {
+        return {{std::make_pair("Output", std::make_pair(OUTPUT_L, OUTPUT_R))}};
     }
 };
 } // namespace sst::surgext_rack::mixer
