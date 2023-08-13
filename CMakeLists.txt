@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.16)
 set(CMAKE_OSX_DEPLOYMENT_TARGET "10.9" CACHE STRING "Minimum OS X deployment version")
 project(SurgeXTRack VERSION 1.0 LANGUAGES C CXX)
 
-set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 set(PLUGIN_NAME ${PROJECT_NAME})
@@ -31,8 +31,11 @@ set(SURGE_SKIP_VST3 TRUE CACHE BOOL "skip surge VST3 build")
 set(SURGE_SKIP_ALSA TRUE CACHE BOOL "skip surge Alsa build")
 set(SURGE_SKIP_STANDALONE TRUE CACHE BOOL "skip surge standalone build")
 set(SURGE_COMPILE_BLOCK_SIZE 8 CACHE STRING "surge compile block size")
-set(SURGE_SIMDE_PATH "${RACK_SDK_DIR}/dep/include" CACHE STRING "surge simde is rack simde")
 
+# Its super common to use RACK_SDK_DIR as a relative path, so resolve for simde
+set(SURGE_SIMDE_PATH_INIT "${RACK_SDK_DIR}/dep/include" CACHE STRING "surge simde is rack simde")
+get_filename_component(SURGE_SIMDE_PATH_ABS ${SURGE_SIMDE_PATH_INIT} ABSOLUTE)
+set(SURGE_SIMDE_PATH "${SURGE_SIMDE_PATH_ABS}" CACHE STRING "surge simde is rack simde, resolved")
 
 add_subdirectory(surge)
 # turn off specific warning as errors enforced by Rack-SDK compiler options for surge libs
@@ -60,6 +63,7 @@ target_compile_options(surge-common PRIVATE -Wno-sign-compare -Wno-ignored-quali
                        $<$<PLATFORM_ID:Darwin>:-Wno-self-assign>
                        $<$<PLATFORM_ID:Darwin>:-Wno-unused-lambda-capture>
                        $<$<PLATFORM_ID:Darwin>:-Wno-mismatched-tags>
+                       $<$<PLATFORM_ID:Darwin>:-Wno-unused-but-set-variable>
                        $<$<PLATFORM_ID:Darwin>:-Wno-infinite-recursion>)
 
 target_compile_options(surge-common PRIVATE $<$<STREQUAL:${CMAKE_OSX_ARCHITECTURES},arm64>:-faligned-allocation>)
