@@ -92,7 +92,7 @@ struct BLANK12 : modules::XTModule
 
     void setupSurge()
     {
-        setupSurgeCommon(NUM_PARAMS, true); // get those presets. FIXME skip wt later
+        setupSurgeCommon(NUM_PARAMS, false, false);
     }
 
     Parameter *surgeDisplayParameterForParamId(int paramId) override

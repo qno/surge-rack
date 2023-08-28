@@ -56,13 +56,13 @@ BLANK12Widget::BLANK12Widget(sst::surgext_rack::blank12::ui::BLANK12Widget::M *m
 
     box.size = rack::Vec(rack::app::RACK_GRID_WIDTH * 12, rack::app::RACK_GRID_HEIGHT);
 
-    auto bg = new widgets::Background(box.size, "QUAD AD", "fx", "BlankNoDisplay");
+    auto bg = new widgets::Background(box.size, "BLANK12", "fx", "BlankNoDisplay");
     addChild(bg);
     bg->addAlpha();
 
     engine_t::addModulationSection(this, M::n_mod_inputs, M::MOD_INPUT_0);
-    engine_t::createInputOutputPorts(this, M::INPUT_L, M::INPUT_R, M::OUTPUT_L, M::OUTPUT_R);
     engine_t::createLeftRightInputLabels(this);
+    engine_t::createInputOutputPorts(this, M::INPUT_L, M::INPUT_R, M::OUTPUT_L, M::OUTPUT_R);
     resetStyleCouplingToModule();
 }
 } // namespace sst::surgext_rack::blank12::ui
