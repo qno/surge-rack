@@ -64,6 +64,7 @@ extern rack::Model *modelSurgeDelayLineByFreqExpanded;
 extern rack::Model *modelSurgeWaveshaper;
 extern rack::Model *modelSurgeLFO;
 extern rack::Model *modelSurgeMixer;
+extern rack::Model *modelSurgeMixerSlider;
 extern rack::Model *modelSurgeModMatrix;
 extern rack::Model *modelSurgeDigitalRingMods;
 
@@ -95,5 +96,6 @@ extern rack::Model *modelQuadAD;
 extern rack::Model *modelQuadLFO;
 
 extern rack::Model *modelUnisonHelper;
+extern rack::Model *modelUnisonHelperCVExpander;
 
 #endif // SCXT_SRC_SURGEXT_H

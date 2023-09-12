@@ -47,6 +47,7 @@ __attribute__((__visibility__("default"))) void init(rack::Plugin *p)
     p->addModel(modelSurgeWaveshaper);
     p->addModel(modelSurgeLFO);
     p->addModel(modelSurgeMixer);
+    p->addModel(modelSurgeMixerSlider);
     p->addModel(modelSurgeModMatrix);
     p->addModel(modelSurgeDigitalRingMods);
 
@@ -76,6 +77,7 @@ __attribute__((__visibility__("default"))) void init(rack::Plugin *p)
     p->addModel(modelQuadLFO);
 
     p->addModel(modelUnisonHelper);
+    p->addModel(modelUnisonHelperCVExpander);
 
     sst::surgext_rack::style::XTStyle::initialize();
 }
