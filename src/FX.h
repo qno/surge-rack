@@ -3,7 +3,7 @@
  *
  * A set of modules expressing Surge XT into the VCV Rack Module Ecosystem
  *
- * Copyright 2019 - 2023, Various authors, as described in the github
+ * Copyright 2019 - 2024, Various authors, as described in the github
  * transaction log.
  *
  * Surge XT for VCV Rack is released under the GNU General Public License
@@ -19,6 +19,7 @@
 #ifndef SURGE_XT_RACK_SRC_FX_H
 #define SURGE_XT_RACK_SRC_FX_H
 
+#include <cmath>
 #include "SurgeXT.h"
 #include "dsp/Effect.h"
 #include "XTModule.h"
@@ -30,6 +31,7 @@
 
 #include "LayoutEngine.h"
 #include "sst/rackhelpers/neighbor_connectable.h"
+#include "sst/filters/HalfRateFilter.h"
 
 namespace sst::surgext_rack::fx
 {
@@ -44,7 +46,7 @@ template <int fxType> struct FXConfig
     static constexpr int extraInputs() { return 0; }
     static constexpr int extraSchmidtTriggers() { return 1; }
     static void configExtraInputs(FX<fxType> *M) {}
-    static void processExtraInputs(FX<fxType> *M) {}
+    static void processExtraInputs(FX<fxType> *M, int channel) {}
 
     static constexpr int extraOutputs() { return 0; }
     static void configExtraOutputs(FX<fxType> *M) {}
@@ -53,6 +55,7 @@ template <int fxType> struct FXConfig
     static constexpr int specificParamCount() { return 0; }
     static void configSpecificParams(FX<fxType> *M) {}
     static void processSpecificParams(FX<fxType> *M) {}
+    static void adjustParamsBasedOnState(FX<fxType> *M) {}
     static void loadPresetOntoSpecificParams(FX<fxType> *M,
                                              const Surge::Storage::FxUserPreset::Preset &)
     {
@@ -65,6 +68,7 @@ template <int fxType> struct FXConfig
 
     static constexpr int panelWidthInScrews() { return 12; }
     static constexpr bool usesSideband() { return false; }
+    static constexpr bool usesSidebandOversampled() { return false; }
     static constexpr bool usesClock() { return false; }
     static constexpr bool usesPresets() { return true; }
     static constexpr int numParams() { return n_fx_params; }
@@ -72,6 +76,9 @@ template <int fxType> struct FXConfig
 
     static constexpr float rescaleInputFactor() { return 1.0; }
     static constexpr bool softclipOutput() { return false; }
+    static constexpr bool nanCheckOutput() { return false; }
+
+    static void addFXSpecificMenuItems(FX<fxType> *M, rack::ui::Menu *) {}
 };
 
 template <int fxType>
@@ -121,11 +128,14 @@ struct FX : modules::XTModule, sst::rackhelpers::module_connector::NeighborConne
                                  n_mod_inputs, MOD_INPUT_0>
         polyModAssist;
 
-    FX() : XTModule()
+    FX() : XTModule(), halfbandIN(6, true)
     {
         std::lock_guard<std::mutex> lgxt(xtSurgeCreateMutex);
         setupSurge();
         config(NUM_PARAMS, NUM_INPUTS, NUM_OUTPUTS, NUM_LIGHTS);
+
+        for (auto &t : extraInputTriggers)
+            t.state = false;
 
         int lastParam{0};
         for (int i = 0; i < n_fx_params; ++i)
@@ -183,7 +193,16 @@ struct FX : modules::XTModule, sst::rackhelpers::module_connector::NeighborConne
 
     std::optional<std::vector<labeledStereoPort_t>> getPrimaryInputs() override
     {
-        return {{std::make_pair("Input", std::make_pair(INPUT_L, INPUT_R))}};
+        if constexpr (FXConfig<fxType>::usesSideband() ||
+                      FXConfig<fxType>::usesSidebandOversampled())
+        {
+            return {{std::make_pair("Input", std::make_pair(INPUT_L, INPUT_R)),
+                     std::make_pair("SideBand", std::make_pair(SIDEBAND_L, SIDEBAND_R))}};
+        }
+        else
+        {
+            return {{std::make_pair("Input", std::make_pair(INPUT_L, INPUT_R))}};
+        }
     }
 
     std::optional<std::vector<labeledStereoPort_t>> getPrimaryOutputs() override
@@ -209,6 +228,9 @@ struct FX : modules::XTModule, sst::rackhelpers::module_connector::NeighborConne
     std::vector<Surge::Storage::FxUserPreset::Preset> presets;
 
     std::atomic<bool> polyphonicMode{false};
+
+    sst::filters::HalfRate::HalfRateFilter halfbandIN;
+    std::atomic<bool> sidebandAttached{false};
 
     void setupSurge()
     {
@@ -429,6 +451,7 @@ struct FX : modules::XTModule, sst::rackhelpers::module_connector::NeighborConne
     std::string getName() override { return std::string("FX<") + fx_type_names[fxType] + ">"; }
 
     int bufferPos{0};
+    uint32_t lastNanCheck{0};
     float bufferL alignas(16)[MAX_POLY][BLOCK_SIZE], bufferR alignas(16)[MAX_POLY][BLOCK_SIZE];
     float modulatorL alignas(16)[MAX_POLY][BLOCK_SIZE], modulatorR
         alignas(16)[MAX_POLY][BLOCK_SIZE];
@@ -487,14 +510,25 @@ struct FX : modules::XTModule, sst::rackhelpers::module_connector::NeighborConne
         {
             if (inputs[SIDEBAND_L].isConnected() && !inputs[SIDEBAND_R].isConnected())
             {
-                float ml = inputs[SIDEBAND_L].getVoltageSum();
+                float ml = inputs[SIDEBAND_L].getVoltageSum() * RACK_TO_SURGE_OSC_MUL;
                 modulatorL[0][bufferPos] = ml;
                 modulatorR[0][bufferPos] = ml;
             }
             else
             {
-                modulatorL[0][bufferPos] = inputs[SIDEBAND_L].getVoltageSum();
-                modulatorR[0][bufferPos] = inputs[SIDEBAND_R].getVoltageSum();
+                modulatorL[0][bufferPos] =
+                    inputs[SIDEBAND_L].getVoltageSum() * RACK_TO_SURGE_OSC_MUL;
+                modulatorR[0][bufferPos] =
+                    inputs[SIDEBAND_R].getVoltageSum() * RACK_TO_SURGE_OSC_MUL;
+            }
+            bool wasSB = sidebandAttached;
+            sidebandAttached = inputs[SIDEBAND_L].isConnected() || inputs[SIDEBAND_R].isConnected();
+            if (FXConfig<fxType>::usesSidebandOversampled())
+            {
+                if (sidebandAttached && !wasSB)
+                {
+                    halfbandIN.reset();
+                }
             }
         }
         bufferPos++;
@@ -511,8 +545,12 @@ struct FX : modules::XTModule, sst::rackhelpers::module_connector::NeighborConne
             {
                 std::memcpy(storage->audio_in_nonOS[0], modulatorL, BLOCK_SIZE * sizeof(float));
                 std::memcpy(storage->audio_in_nonOS[1], modulatorR, BLOCK_SIZE * sizeof(float));
+                if (FXConfig<fxType>::usesSidebandOversampled())
+                {
+                    halfbandIN.process_block_U2(modulatorL[0], modulatorR[0], storage->audio_in[0],
+                                                storage->audio_in[1], BLOCK_SIZE_OS);
+                }
             }
-
             if constexpr (FXConfig<fxType>::specificParamCount() > 0)
             {
                 FXConfig<fxType>::processSpecificParams(this);
@@ -523,7 +561,8 @@ struct FX : modules::XTModule, sst::rackhelpers::module_connector::NeighborConne
                 fxstorage->p[i].set_value_f01(modAssist.basevalues[i]);
             }
 
-            FXConfig<fxType>::processExtraInputs(this);
+            FXConfig<fxType>::processExtraInputs(this, 0);
+            FXConfig<fxType>::adjustParamsBasedOnState(this);
 
             copyGlobaldataSubset(storage_id_start, storage_id_end);
 
@@ -545,6 +584,25 @@ struct FX : modules::XTModule, sst::rackhelpers::module_connector::NeighborConne
 
             FXConfig<fxType>::populateExtraOutputs(this, 0, surge_effect.get());
 
+            if constexpr (FXConfig<fxType>::nanCheckOutput())
+            {
+                if (lastNanCheck == 0)
+                {
+                    bool isNumber{true};
+                    for (int ns = 0; ns < BLOCK_SIZE; ++ns)
+                    {
+                        isNumber = isNumber && std::isfinite(processedL[0][ns]);
+                        isNumber = isNumber && std::isfinite(processedR[0][ns]);
+                    }
+
+                    if (!isNumber)
+                    {
+                        reinitialize();
+                    }
+                }
+                lastNanCheck = (lastNanCheck + 1) % 32;
+            }
+
             bufferPos = 0;
         }
 
@@ -559,6 +617,7 @@ struct FX : modules::XTModule, sst::rackhelpers::module_connector::NeighborConne
             outl = outl - 4.0 / 27.0 * outl * outl * outl;
             outr = outr - 4.0 / 27.0 * outr * outr * outr;
         }
+
         outl *= SURGE_TO_RACK_OSC_MUL;
         outr *= SURGE_TO_RACK_OSC_MUL;
         if (outputs[OUTPUT_L].isConnected() && !outputs[OUTPUT_R].isConnected())
@@ -579,12 +638,39 @@ struct FX : modules::XTModule, sst::rackhelpers::module_connector::NeighborConne
 
     int lastNChan{-1};
 
-    void reinitialize()
+    void reinitialize(int c = -1)
     {
-        surge_effect->init();
-        for (const auto &s : surge_effect_poly)
-            if (s)
-                s->init();
+        if (c == -1)
+        {
+            // Re-initialize everything
+            surge_effect->init();
+            halfbandIN.reset();
+            for (const auto &s : surge_effect_poly)
+                if (s)
+                {
+                    s->init();
+                }
+
+            // We are just starting over so clear all the buffers
+            bufferPos = 0;
+
+            memset(processedL, 0, sizeof(float) * MAX_POLY * BLOCK_SIZE);
+            memset(processedR, 0, sizeof(float) * MAX_POLY * BLOCK_SIZE);
+            memset(bufferL, 0, sizeof(float) * MAX_POLY * BLOCK_SIZE);
+            memset(bufferR, 0, sizeof(float) * MAX_POLY * BLOCK_SIZE);
+        }
+        else
+        {
+            // poly nan case
+            surge_effect_poly[c]->init();
+
+            // Other buffers are fine. Just clear mine. And don't change
+            // pos since the zeros wont hurt me.
+            memset(processedL[c], 0, sizeof(float) * BLOCK_SIZE);
+            memset(processedR[c], 0, sizeof(float) * BLOCK_SIZE);
+            memset(bufferL[c], 0, sizeof(float) * BLOCK_SIZE);
+            memset(bufferR[c], 0, sizeof(float) * BLOCK_SIZE);
+        }
     }
 
     void guaranteePolyFX(int chan)
@@ -652,6 +738,7 @@ struct FX : modules::XTModule, sst::rackhelpers::module_connector::NeighborConne
                 modulatorR[0][bufferPos] = inputs[SIDEBAND_R].getVoltageSum();
             }
         }
+
         bufferPos++;
 
         if (bufferPos >= BLOCK_SIZE)
@@ -669,10 +756,10 @@ struct FX : modules::XTModule, sst::rackhelpers::module_connector::NeighborConne
                 fxstorage->p[i].set_value_f01(polyModAssist.basevalues[i]);
             }
 
-            FXConfig<fxType>::processExtraInputs(this);
-
             for (int c = 0; c < chan; ++c)
             {
+                FXConfig<fxType>::processExtraInputs(this, c);
+
                 std::memcpy(processedL[c], bufferL[c], BLOCK_SIZE * sizeof(float));
                 std::memcpy(processedR[c], bufferR[c], BLOCK_SIZE * sizeof(float));
 
@@ -701,6 +788,29 @@ struct FX : modules::XTModule, sst::rackhelpers::module_connector::NeighborConne
                 surge_effect_poly[c]->process_ringout(processedL[c], processedR[c], true);
 
                 FXConfig<fxType>::populateExtraOutputs(this, c, surge_effect_poly[c].get());
+            }
+
+            if constexpr (FXConfig<fxType>::nanCheckOutput())
+            {
+                if (lastNanCheck == 0)
+                {
+                    for (int c = 0; c < chan; ++c)
+                    {
+
+                        bool isNumber{true};
+                        for (int ns = 0; ns < BLOCK_SIZE; ++ns)
+                        {
+                            isNumber = isNumber && std::isfinite(processedL[c][ns]);
+                            isNumber = isNumber && std::isfinite(processedR[c][ns]);
+                        }
+
+                        if (!isNumber)
+                        {
+                            reinitialize(c);
+                        }
+                    }
+                }
+                lastNanCheck = (lastNanCheck + 1) % 32;
             }
             bufferPos = 0;
         }
@@ -792,6 +902,34 @@ struct FX : modules::XTModule, sst::rackhelpers::module_connector::NeighborConne
         {
             json_object_set_new(fx, "polyphonicMode", json_boolean(polyphonicMode));
         }
+
+        // A little bit of defensive code I added in 2.2 in case we change int bounds in the
+        // future. I don't read this yet but I do write it
+        auto *paramNatural = json_array();
+        for (int i = 0; i < n_fx_params; ++i)
+        {
+            const auto &p = fxstorage->p[i];
+            auto *parJ = json_object();
+
+            json_object_set(parJ, "index", json_integer(i));
+            json_object_set(parJ, "valtype", json_integer(p.valtype));
+            switch (p.valtype)
+            {
+            case vt_float:
+                json_object_set(parJ, "val_f", json_real(p.val.f));
+                break;
+            case vt_int:
+                json_object_set(parJ, "val_i", json_integer(p.val.i));
+                break;
+            case vt_bool:
+                json_object_set(parJ, "val_b", json_boolean(p.val.b));
+                break;
+            }
+            json_array_append_new(paramNatural, parJ);
+        }
+
+        json_object_set_new(fx, "paramNatural", paramNatural);
+
         return fx;
     }
 

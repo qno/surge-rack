@@ -3,7 +3,7 @@
  *
  * A set of modules expressing Surge XT into the VCV Rack Module Ecosystem
  *
- * Copyright 2019 - 2023, Various authors, as described in the github
+ * Copyright 2019 - 2024, Various authors, as described in the github
  * transaction log.
  *
  * Surge XT for VCV Rack is released under the GNU General Public License
@@ -904,7 +904,8 @@ struct QuadLFO : modules::XTModule
             for (int c = 0; c < chanByLFO[i]; ++c)
             {
                 auto r = RateQuantity::independentRateScale(modAssist.values[RATE_0 + i][c]);
-                if (ic && triggers[i][c].process(inputs[TRIGGER_0].getVoltage(c * (!monoTrigger))))
+                if (ic &&
+                    triggers[i][c].process(inputs[TRIGGER_0 + i].getVoltage(c * (!monoTrigger))))
                 {
                     processors[i][c]->attack(shape);
                 }

@@ -3,7 +3,7 @@
  *
  * A set of modules expressing Surge XT into the VCV Rack Module Ecosystem
  *
- * Copyright 2019 - 2023, Various authors, as described in the github
+ * Copyright 2019 - 2024, Various authors, as described in the github
  * transaction log.
  *
  * Surge XT for VCV Rack is released under the GNU General Public License
@@ -31,10 +31,12 @@
 #include "sst/basic-blocks/mechanics/block-ops.h"
 #include "CXOR.h"
 #include "SurgeStorage.h"
+#include <sst/rackhelpers/neighbor_connectable.h>
 
 namespace sst::surgext_rack::digitalrm
 {
-struct DigitalRingMod : modules::XTModule
+struct DigitalRingMod : modules::XTModule,
+                        sst::rackhelpers::module_connector::NeighborConnectable_V1
 {
     enum ParamIds
     {
@@ -80,12 +82,14 @@ struct DigitalRingMod : modules::XTModule
         setupSurgeCommon(NUM_PARAMS, false, false);
         config(NUM_PARAMS, NUM_INPUTS, NUM_OUTPUTS, NUM_LIGHTS);
 
-        configSwitch(LINK_01, 0, 1, 0, "Link Second A to First Output", {"Don't Link", "Link"});
+        auto linkS =
+            configSwitch(LINK_01, 0, 1, 0, "Link Second A to First Output", {"Don't Link", "Link"});
+        linkS->randomizeEnabled = false;
         std::vector<std::string> nm;
         for (int i = 0; i < n_cxm_modes; ++i)
             nm.push_back(combinator_mode_names[i]);
-        configSwitch(TYPE_0, 0, n_cxm_modes, 0, "CXOR 1 Algorithm", nm);
-        configSwitch(TYPE_1, 0, n_cxm_modes, 0, "CXOR 2 Algorithm", nm);
+        configSwitch(TYPE_0, 0, n_cxm_modes - 1, 0, "CXOR 1 Algorithm", nm);
+        configSwitch(TYPE_1, 0, n_cxm_modes - 1, 0, "CXOR 2 Algorithm", nm);
 
         configInput(INPUT_0_A_L, "CXOR 1 A Left");
         configInput(INPUT_0_A_R, "CXOR 1 A Right");
@@ -292,14 +296,30 @@ struct DigitalRingMod : modules::XTModule
         blockPos++;
     }
 
+    std::optional<std::vector<labeledStereoPort_t>> getPrimaryInputs() override
+    {
+        return {{std::make_pair("CXOR 1 Port A", std::make_pair(INPUT_0_A_L, INPUT_0_A_R)),
+                 std::make_pair("CXOR 1 Port B", std::make_pair(INPUT_0_B_L, INPUT_0_B_R)),
+                 std::make_pair("CXOR 2 Port A", std::make_pair(INPUT_1_B_L, INPUT_1_B_R)),
+                 std::make_pair("CXOR 2 Port A", std::make_pair(INPUT_1_B_L, INPUT_1_B_R))}};
+    }
+
+    std::optional<std::vector<labeledStereoPort_t>> getPrimaryOutputs() override
+    {
+        return {{
+            std::make_pair("CXOR 1", std::make_pair(OUTPUT_0_L, OUTPUT_0_R)),
+            std::make_pair("CXOR 2", std::make_pair(OUTPUT_1_L, OUTPUT_1_R)),
+        }};
+    }
+
     std::array<std::array<std::unique_ptr<sst::filters::HalfRate::HalfRateFilter>, MAX_POLY>, 2>
         halfbandInA, halfbandInB, halfbandOut;
-    static constexpr int blockSize{4}, blockSizeOS{blockSize << 1};
-    float inputA[2][MAX_POLY][2][blockSize]; // 0,1; poly; L/R
+    static constexpr int blockSize{8}, blockSizeOS{blockSize << 1};
+    float inputA alignas(16)[2][MAX_POLY][2][blockSize]; // 0,1; poly; L/R
     bool aMono[2]{false, false};
-    float inputB[2][MAX_POLY][2][blockSize]; // 0,1; poly; L/R
+    float inputB alignas(16)[2][MAX_POLY][2][blockSize]; // 0,1; poly; L/R
     bool bMono[2]{false, false};
-    float output[2][MAX_POLY][2][blockSize]; // 0,1; poly; L/R
+    float output alignas(16)[2][MAX_POLY][2][blockSize]; // 0,1; poly; L/R
     int blockPos{0};
     int poly[2]{1, 1};
 };

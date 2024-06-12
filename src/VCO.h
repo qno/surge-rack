@@ -3,7 +3,7 @@
  *
  * A set of modules expressing Surge XT into the VCV Rack Module Ecosystem
  *
- * Copyright 2019 - 2023, Various authors, as described in the github
+ * Copyright 2019 - 2024, Various authors, as described in the github
  * transaction log.
  *
  * Surge XT for VCV Rack is released under the GNU General Public License
@@ -26,6 +26,7 @@
 #include <sst/filters/HalfRateFilter.h>
 #include "sst/basic-blocks/mechanics/block-ops.h"
 #include "sst/rackhelpers/neighbor_connectable.h"
+#include "sst/rackhelpers/json.h"
 
 #include "LayoutEngine.h"
 
@@ -178,6 +179,8 @@ struct VCO : public modules::XTModule, sst::rackhelpers::module_connector::Neigh
                 oscstorage->wt.queue_id = 0;
                 oscstorage_display->wt.queue_id = 0;
                 storage->perform_queued_wtloads();
+
+                invalidateWavetableStreamingCache = true;
                 wavetableIndex = oscstorage->wt.current_id;
             }
         }
@@ -243,11 +246,11 @@ struct VCO : public modules::XTModule, sst::rackhelpers::module_connector::Neigh
         }
 
         configParamNoRand(RETRIGGER_STYLE, 0, 1, 0, "Random Phase on Retrigger");
-        configParamNoRand(EXTEND_UNISON, 0, 1, 0, "Extend Unison");
-        configParamNoRand(ABSOLUTE_UNISON, 0, 1, 0, "Absolute Unison");
-        configParam(CHARACTER, 0, 2, 1, "Character Filter");
-        configParam(DRIFT, 0, 1, 0, "Oscillator Drift", "%", 0, 100);
-        configParam(FIXED_ATTENUATION, 0, 1, 1, "Output Level", "%", 0, 100);
+        configOnOffNoRand(EXTEND_UNISON, 0, "Extend Unison");
+        configOnOffNoRand(ABSOLUTE_UNISON, 0, "Absolute Unison");
+        configParamNoRand(CHARACTER, 0, 2, 1, "Character Filter");
+        configParamNoRand(DRIFT, 0, 1, 0, "Oscillator Drift", "%", 0, 100);
+        configParamNoRand(FIXED_ATTENUATION, 0, 1, 1, "Output Level", "%", 0, 100);
 
         VCOConfig<oscType>::configureVCOSpecificParameters(this);
         config_osc->~Oscillator();
@@ -401,6 +404,9 @@ struct VCO : public modules::XTModule, sst::rackhelpers::module_connector::Neigh
         wavetableQueue;
     std::atomic<int> wavetableIndex{-1};
     std::atomic<uint32_t> wavetableLoads{0};
+    std::atomic<bool> invalidateWavetableStreamingCache{true};
+    std::string wavetableStreamingCache;
+
     uint32_t lastWavetableLoads{0};
     std::atomic<bool> draw3DWavetable{VCOConfig<oscType>::requiresWavetables()};
     std::atomic<bool> animateDisplayFromMod{true};
@@ -438,6 +444,7 @@ struct VCO : public modules::XTModule, sst::rackhelpers::module_connector::Neigh
             oscstorage_display->wt.queue_id = nid;
             storage->perform_queued_wtloads();
 
+            invalidateWavetableStreamingCache = true;
             wavetableIndex = oscstorage->wt.current_id;
         }
         else
@@ -446,9 +453,9 @@ struct VCO : public modules::XTModule, sst::rackhelpers::module_connector::Neigh
             oscstorage_display->wt.queue_filename = msg.filename;
             oscstorage->wt.frame_size_if_absent = msg.defaultSize;
             oscstorage_display->wt.frame_size_if_absent = msg.defaultSize;
-
             storage->perform_queued_wtloads();
 
+            invalidateWavetableStreamingCache = true;
             wavetableIndex = -1;
         }
         wavetableLoads++;
@@ -745,6 +752,7 @@ struct VCO : public modules::XTModule, sst::rackhelpers::module_connector::Neigh
     modules::DCBlocker blockers[2][MAX_POLY];
     int halfbandM{6};
     bool halfbandSteep{true};
+    std::atomic<int> displayPolyChannel{0};
     std::array<std::unique_ptr<sst::filters::HalfRate::HalfRateFilter>, MAX_POLY> halfbandOUT;
     sst::filters::HalfRate::HalfRateFilter halfbandIN;
     float audioInBuffer[BLOCK_SIZE_OS];
@@ -768,35 +776,67 @@ struct VCO : public modules::XTModule, sst::rackhelpers::module_connector::Neigh
             json_object_set_new(wtT, "n_samples", json_integer(wt.size));
             json_object_set_new(wtT, "flags", json_integer(wt.flags));
 
-            wt_header wth;
-            memset(wth.tag, 0, 4);
-            wth.n_samples = wt.size;
-            wth.n_tables = wt.n_tables;
-            wth.flags = (wt.flags | wtf_int16) & ~wtf_int16_is_16;
-            unsigned int wtsize =
-                wth.n_samples * wt.n_tables * sizeof(uint16_t) + sizeof(wt_header);
-
-            auto *data = new uint8_t[wtsize];
-            auto *odata = data;
-            memcpy(data, &wth, sizeof(wt_header));
-            data += sizeof(wt_header);
-
-            for (int j = 0; j < wth.n_tables; ++j)
+            if (invalidateWavetableStreamingCache)
             {
-                std::memcpy(data, &wt.TableI16WeakPointers[0][j][FIRoffsetI16],
-                            wth.n_samples * sizeof(uint16_t));
-                data += wth.n_samples * sizeof(uint16_t);
+                wt_header wth;
+                memset(wth.tag, 0, 4);
+                wth.n_samples = wt.size;
+                wth.n_tables = wt.n_tables;
+                wth.flags = (wt.flags | wtf_int16) & ~wtf_int16_is_16;
+                unsigned int wtsize =
+                    wth.n_samples * wt.n_tables * sizeof(uint16_t) + sizeof(wt_header);
+
+                auto *data = new uint8_t[wtsize];
+                auto *odata = data;
+                memcpy(data, &wth, sizeof(wt_header));
+                data += sizeof(wt_header);
+
+                for (int j = 0; j < wth.n_tables; ++j)
+                {
+                    std::memcpy(data, &wt.TableI16WeakPointers[0][j][FIRoffsetI16],
+                                wth.n_samples * sizeof(uint16_t));
+                    data += wth.n_samples * sizeof(uint16_t);
+                }
+                wavetableStreamingCache = rack::string::toBase64(odata, wtsize);
+
+                delete[] odata;
+                invalidateWavetableStreamingCache = false;
             }
-            auto b64 = rack::string::toBase64(odata, wtsize);
-            delete[] odata;
-            json_object_set_new(wtT, "data", json_string(b64.c_str()));
+            json_object_set_new(wtT, "data", json_string(wavetableStreamingCache.c_str()));
             json_object_set_new(vco, "wavetable", wtT);
             wtT = nullptr;
         }
 
+        // A little bit of defensive code I added in 2.2 in case we change int bounds in the
+        // future. I don't read this yet but I do write it
+        auto *paramNatural = json_array();
+        for (int i = 0; i < n_osc_params; ++i)
+        {
+            const auto &p = oscstorage->p[i];
+            auto *parJ = json_object();
+
+            json_object_set(parJ, "index", json_integer(i));
+            json_object_set(parJ, "valtype", json_integer(p.valtype));
+            switch (p.valtype)
+            {
+            case vt_float:
+                json_object_set(parJ, "val_f", json_real(p.val.f));
+                break;
+            case vt_int:
+                json_object_set(parJ, "val_i", json_integer(p.val.i));
+                break;
+            case vt_bool:
+                json_object_set(parJ, "val_b", json_boolean(p.val.b));
+                break;
+            }
+            json_array_append_new(paramNatural, parJ);
+        }
+        json_object_set_new(vco, "paramNatural", paramNatural);
+
         json_object_set_new(vco, "halfbandM", json_integer(halfbandM));
         json_object_set_new(vco, "halfbandSteep", json_boolean(halfbandSteep));
         json_object_set_new(vco, "doDCBlock", json_boolean(doDCBlock));
+        json_object_set_new(vco, "displayPolyChannel", json_integer(displayPolyChannel));
         return vco;
     }
     void readModuleSpecificJson(json_t *modJ) override
@@ -829,6 +869,8 @@ struct VCO : public modules::XTModule, sst::rackhelpers::module_connector::Neigh
             oscstorage->wt.BuildWT(data, wth, false);
             oscstorage_display->wt.BuildWT(data, wth, false);
             wavetableLoads++;
+
+            invalidateWavetableStreamingCache = true;
             storage->waveTableDataMutex.unlock();
 
             auto nm = json_object_get(wtJ, "display_name");
@@ -871,6 +913,10 @@ struct VCO : public modules::XTModule, sst::rackhelpers::module_connector::Neigh
             doDCBlock = json_boolean_value(ddb);
         else
             doDCBlock = true;
+
+        auto pc = rackhelpers::json::jsonSafeGet<int>(modJ, "displayPolyChannel");
+        if (pc.has_value())
+            displayPolyChannel = *pc;
     }
 };
 

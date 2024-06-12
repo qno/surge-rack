@@ -3,7 +3,7 @@
  *
  * A set of modules expressing Surge XT into the VCV Rack Module Ecosystem
  *
- * Copyright 2019 - 2023, Various authors, as described in the github
+ * Copyright 2019 - 2024, Various authors, as described in the github
  * transaction log.
  *
  * Surge XT for VCV Rack is released under the GNU General Public License
@@ -112,7 +112,6 @@ struct Label : BufferedDrawFunctionWidget, style::StyleParticipant
 
     void drawLabel(NVGcontext *vg)
     {
-        auto col = style()->getColor(color);
         nvgBeginPath(vg);
         nvgFontFaceId(vg, style()->fontIdBold(vg));
         nvgFontSize(vg, size * 96.0 / 72.0);
@@ -308,6 +307,9 @@ struct ModulatableKnob
 {
     virtual void setIsModEditing(bool b) = 0;
     virtual rack::Widget *asWidget() = 0;
+
+    bool deactivated{false};
+    std::function<bool(modules::XTModule *m)> dynamicDeactivateFn{nullptr};
 };
 
 struct KnobN : public rack::componentlibrary::RoundKnob, style::StyleParticipant, ModulatableKnob
@@ -388,6 +390,9 @@ struct KnobN : public rack::componentlibrary::RoundKnob, style::StyleParticipant
 
     void drawRing(NVGcontext *vg)
     {
+        if (deactivated)
+            return;
+
         float radius = rack::mm2px(ringWidth_MM * 2 + knobSize_MM) * 0.5;
         nvgBeginPath(vg);
         nvgArc(vg, box.size.x * 0.5, box.size.y * 0.5, radius, minAngle - M_PI_2, maxAngle - M_PI_2,
@@ -400,6 +405,9 @@ struct KnobN : public rack::componentlibrary::RoundKnob, style::StyleParticipant
 
     void drawValueRing(NVGcontext *vg)
     {
+        if (deactivated)
+            return;
+
         if (isModEditing)
             return;
         auto *pq = getParamQuantity();
@@ -455,12 +463,15 @@ struct KnobN : public rack::componentlibrary::RoundKnob, style::StyleParticipant
     BufferedDrawFunctionWidget *bw{nullptr}, *bwValue{nullptr}, *bwShadow{nullptr};
     void onChange(const ChangeEvent &e) override;
     void onStyleChanged() override { setupWidgets(); }
+
+    std::shared_ptr<rack::window::Svg> ptrSvg;
     void setupWidgets()
     {
         auto compDir = style()->skinAssetDir() + "/components";
 
-        setSvg(
-            rack::Svg::load(rack::asset::plugin(pluginInstance, compDir + "/" + knobPointerAsset)));
+        ptrSvg =
+            rack::Svg::load(rack::asset::plugin(pluginInstance, compDir + "/" + knobPointerAsset));
+        setSvg(ptrSvg);
         bg->setSvg(rack::Svg::load(
             rack::asset::plugin(pluginInstance, compDir + "/" + knobBackgroundAsset)));
         // bg->visible = false;
@@ -532,6 +543,19 @@ struct KnobN : public rack::componentlibrary::RoundKnob, style::StyleParticipant
         nvgRestore(vg);
     }
 
+    void setDeactivated(bool isDA)
+    {
+        deactivated = isDA;
+
+        bw->dirty = true;
+        bwValue->dirty = true;
+
+        bwShadow->dirty = true;
+
+        sw->setVisible(!deactivated);
+        fb->dirty = true;
+    }
+
     float priorMDA{0};
     bool priorBip{false};
     void step() override
@@ -550,8 +574,65 @@ struct KnobN : public rack::componentlibrary::RoundKnob, style::StyleParticipant
                 bwValue->dirty = true;
                 priorBip = bip;
             }
+
+            if (dynamicDeactivateFn)
+            {
+                auto xtm = static_cast<modules::XTModule *>(module);
+                auto oda = deactivated;
+                auto nda = dynamicDeactivateFn(xtm);
+                if (oda != nda)
+                {
+                    setDeactivated(nda);
+                }
+            }
         }
         rack::componentlibrary::RoundKnob::step();
+    }
+
+    void onHover(const HoverEvent &e) override
+    {
+        if (!deactivated)
+            rack::componentlibrary::RoundKnob::onHover(e);
+    }
+    void onButton(const ButtonEvent &e) override
+    {
+        if (!deactivated)
+            rack::componentlibrary::RoundKnob::onButton(e);
+    }
+
+    void onDragStart(const DragStartEvent &e) override
+    {
+        if (!deactivated)
+            rack::componentlibrary::RoundKnob::onDragStart(e);
+    }
+    void onDragEnd(const DragEndEvent &e) override
+    {
+        if (!deactivated)
+            rack::componentlibrary::RoundKnob::onDragEnd(e);
+    }
+
+    void onDragMove(const DragMoveEvent &e) override
+    {
+        if (!deactivated)
+            rack::componentlibrary::RoundKnob::onDragMove(e);
+    }
+
+    void onDragLeave(const DragLeaveEvent &e) override
+    {
+        if (!deactivated)
+            rack::componentlibrary::RoundKnob::onDragLeave(e);
+    }
+
+    void onHoverScroll(const HoverScrollEvent &e) override
+    {
+        if (!deactivated)
+            rack::componentlibrary::RoundKnob::onHoverScroll(e);
+    }
+
+    void onLeave(const LeaveEvent &e) override
+    {
+        if (!deactivated)
+            rack::componentlibrary::RoundKnob::onLeave(e);
     }
 };
 
@@ -802,6 +883,29 @@ struct ModRingKnob : rack::app::Knob, style::StyleParticipant, HasBDW
             rack::Knob::onLeave(e);
     }
 
+    bool hasVoltPerOctUnits(Parameter *p)
+    {
+        switch (p->ctrltype)
+        {
+        case ct_freq_hpf:
+        case ct_freq_audible:
+        case ct_freq_audible_deactivatable:
+        case ct_freq_audible_deactivatable_hp:
+        case ct_freq_audible_deactivatable_lp:
+        case ct_freq_audible_fm3_extendable:
+        case ct_freq_audible_with_tunability:
+        case ct_freq_audible_very_low_minval:
+        case ct_freq_reson_band1:
+        case ct_freq_reson_band2:
+        case ct_freq_reson_band3:
+        case ct_freq_vocoder_low:
+        case ct_freq_vocoder_high:
+        case ct_freq_ringmod:
+            return (p->val_max.f - p->val_min.f) > 120;
+        }
+        return false;
+    }
+
     void appendContextMenu(rack::Menu *menu) override
     {
         auto spq = dynamic_cast<modules::SurgeParameterModulationQuantity *>(getParamQuantity());
@@ -817,6 +921,23 @@ struct ModRingKnob : rack::app::Knob, style::StyleParticipant, HasBDW
             auto spql = new SQPParamLabel;
             spql->spq = spq;
             menu->addChildBottom(spql);
+
+            auto pr = spq->surgepar();
+            if (pr && hasVoltPerOctUnits(pr))
+            {
+                menu->addChild(rack::createMenuItem("Modulate at 1Oct/V", "", [spq]() {
+                    auto newVal = 120.f / (spq->surgepar()->val_max.f - spq->surgepar()->val_min.f);
+                    auto *h = new rack::history::ParamChange;
+                    h->name = std::string("change ") + spq->getLabel();
+                    h->moduleId = spq->module->id;
+                    h->paramId = spq->paramId;
+                    h->oldValue = spq->getValue();
+                    h->newValue = newVal;
+                    APP->history->push(h);
+
+                    spq->setValue(newVal);
+                }));
+            }
         }
     }
 };
@@ -907,7 +1028,8 @@ struct ActivateKnobSwitch : rack::app::Switch, style::StyleParticipant
     enum RenderType
     {
         POWER,
-        EXTENDED
+        EXTENDED,
+        VINTAGE
     } type{POWER};
 
     ActivateKnobSwitch()
@@ -959,6 +1081,15 @@ struct ActivateKnobSwitch : rack::app::Switch, style::StyleParticipant
                        crossRadius);
     }
 
+    void setupVintagePath(NVGcontext *vg)
+    {
+        const float shrinkBy = rack::mm2px(0.9);
+        nvgBeginPath(vg);
+        nvgMoveTo(vg, shrinkBy, shrinkBy);
+        nvgLineTo(vg, box.size.x * 0.5, box.size.y - shrinkBy);
+        nvgLineTo(vg, box.size.x - shrinkBy, shrinkBy);
+    }
+
     void drawBackground(NVGcontext *vg)
     {
         auto col = style()->getColor(style::XTStyle::POWER_BUTTON_LIGHT_OFF);
@@ -987,6 +1118,19 @@ struct ActivateKnobSwitch : rack::app::Switch, style::StyleParticipant
             nvgStroke(vg);
             nvgFill(vg);
         }
+        if (type == VINTAGE)
+        {
+            setupVintagePath(vg);
+            nvgStrokeColor(vg, style()->getColor(style::XTStyle::PANEL_RULER));
+            nvgStrokeWidth(vg, 2);
+            nvgLineCap(vg, NVG_ROUND);
+            nvgStroke(vg);
+            setupVintagePath(vg);
+            nvgStrokeColor(vg, col);
+            nvgLineCap(vg, NVG_BUTT);
+            nvgStrokeWidth(vg, 1.0);
+            nvgStroke(vg);
+        }
     }
 
     void drawLight(NVGcontext *vg)
@@ -999,26 +1143,27 @@ struct ActivateKnobSwitch : rack::app::Switch, style::StyleParticipant
 
         const float halo = rack::settings::haloBrightness;
 
-        if (halo > 0.f)
-        {
-            nvgBeginPath(vg);
-            nvgEllipse(vg, box.size.x * 0.5, box.size.y * 0.5, box.size.x * 0.5, box.size.x * 0.5);
-
-            auto pcol = style()->getColor(style::XTStyle::POWER_BUTTON_LIGHT_ON);
-            NVGcolor icol = pcol;
-            icol.a = halo;
-            NVGcolor ocol = pcol;
-            ocol.a = 0.f;
-            NVGpaint paint = nvgRadialGradient(vg, box.size.x * 0.5, box.size.y * 0.5, radius,
-                                               box.size.x * 0.5, icol, ocol);
-            nvgFillPaint(vg, paint);
-            nvgFill(vg);
-
-            drawBackground(vg);
-        }
-
         if (type == POWER)
         {
+            if (halo > 0.f)
+            {
+                nvgBeginPath(vg);
+                nvgEllipse(vg, box.size.x * 0.5, box.size.y * 0.5, box.size.x * 0.5,
+                           box.size.x * 0.5);
+
+                auto pcol = style()->getColor(style::XTStyle::POWER_BUTTON_LIGHT_ON);
+                NVGcolor icol = pcol;
+                icol.a = halo;
+                NVGcolor ocol = pcol;
+                ocol.a = 0.f;
+                NVGpaint paint = nvgRadialGradient(vg, box.size.x * 0.5, box.size.y * 0.5, radius,
+                                                   box.size.x * 0.5, icol, ocol);
+                nvgFillPaint(vg, paint);
+                nvgFill(vg);
+
+                drawBackground(vg);
+            }
+
             nvgBeginPath(vg);
             nvgFillColor(vg, style()->getColor(style::XTStyle::POWER_BUTTON_LIGHT_ON));
             nvgEllipse(vg, box.size.x * 0.5, box.size.y * 0.5, radius * 0.9, radius * 0.9);
@@ -1029,6 +1174,33 @@ struct ActivateKnobSwitch : rack::app::Switch, style::StyleParticipant
             setupExtendedPath(vg);
             nvgFillColor(vg, style()->getColor(style::XTStyle::POWER_BUTTON_LIGHT_ON));
             nvgFill(vg);
+        }
+        if (type == VINTAGE)
+        {
+            if (halo > 0.f)
+            {
+                auto pcol = style()->getColor(style::XTStyle::POWER_BUTTON_LIGHT_ON);
+                NVGcolor icol = pcol;
+                icol.a = halo * 0.5; // draw it twice to fake a gradient
+
+                setupVintagePath(vg);
+                nvgStrokeColor(vg, icol);
+                nvgLineCap(vg, NVG_ROUND);
+                nvgStrokeWidth(vg, 3);
+                nvgStroke(vg);
+
+                setupVintagePath(vg);
+                nvgStrokeColor(vg, icol);
+                nvgLineCap(vg, NVG_ROUND);
+                nvgStrokeWidth(vg, 4);
+                nvgStroke(vg);
+                drawBackground(vg);
+            }
+            setupVintagePath(vg);
+            nvgStrokeColor(vg, style()->getColor(style::XTStyle::POWER_BUTTON_LIGHT_ON));
+            nvgLineCap(vg, NVG_BUTT);
+            nvgStrokeWidth(vg, 1);
+            nvgStroke(vg);
         }
     }
 
@@ -1525,7 +1697,9 @@ struct PlotAreaMenuItem : public rack::app::Knob, style::StyleParticipant
     static constexpr float padTop_MM = 1.4;
     static constexpr float padBot_MM = 1.6;
     BufferedDrawFunctionWidget *bdw{nullptr};
-    std::function<std::string(const std::string &)> transformLabel;
+    std::function<std::string(const std::string &)> transformLabel{nullptr};
+    bool deactivated{false};
+    std::function<bool(modules::XTModule *)> dynamicDeactivateFn{nullptr};
     std::function<void()> onShowMenu = []() {};
     bool upcaseDisplay{true};
     bool centerDisplay{false};
@@ -1564,7 +1738,10 @@ struct PlotAreaMenuItem : public rack::app::Knob, style::StyleParticipant
         pv = transformLabel(pv);
 
         nvgBeginPath(vg);
-        nvgFillColor(vg, style()->getColor(style::XTStyle::PLOT_CONTROL_TEXT));
+        if (deactivated)
+            nvgFillColor(vg, style()->getColor(style::XTStyle::PLOT_MARKS));
+        else
+            nvgFillColor(vg, style()->getColor(style::XTStyle::PLOT_CONTROL_TEXT));
         nvgFontFaceId(vg, style()->fontIdBold(vg));
         nvgFontSize(vg, layout::LayoutConstants::labelSize_pt * 96 / 72);
         if (centerDisplay)
@@ -1598,10 +1775,51 @@ struct PlotAreaMenuItem : public rack::app::Knob, style::StyleParticipant
         Widget::onChange(e);
     }
 
+    void onHover(const HoverEvent &e) override
+    {
+        if (!deactivated)
+            rack::app::Knob::onHover(e);
+    }
+
     void onAction(const ActionEvent &e) override
     {
+        if (deactivated)
+            return;
+
         onShowMenu();
         e.consume(this);
+    }
+
+    std::string cacheString{};
+    void step() override
+    {
+        if (module)
+        {
+            auto *pq = getParamQuantity();
+            if (pq)
+            {
+                auto pv = pq->getDisplayValueString();
+                if (pv != cacheString)
+                {
+                    bdw->dirty = true;
+                    cacheString = pv;
+                }
+            }
+
+            if (dynamicDeactivateFn)
+            {
+                auto xtm = static_cast<modules::XTModule *>(module);
+
+                auto oda = deactivated;
+                auto nda = dynamicDeactivateFn(xtm);
+                if (oda != nda)
+                {
+                    deactivated = nda;
+                    bdw->dirty = true;
+                }
+            }
+        }
+        rack::Knob::step();
     }
 };
 

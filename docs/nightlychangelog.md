@@ -1,28 +1,16 @@
-## 2.2.0 (as of  80743550a31cf)
+## 2.2.2
 
-### New Modules
-  - Bonsai
-    - Bonsai is a tape-style distortion effect
-  - Nimbus
-    - Nimbus is the surge port of the popular mutable granular delay effect
-  - Digital RingModulators and Combinators
-    - Surge XT 1.3 added a variety of functional forms for
-      digital ring modulation and waveform combination. This module
-      exposes them to the Rack ecosystem.
-  - Unison Helper
-    - Given a polyphonic VCO, apply the surge
-      unison, drift, and character algorithms
-    - Also includes an expander to route CV along the same paths
-  - A copy of the Mixer, just with Sliders
-    - Because [sometimes you feel like a knob, sometimes you don't.](https://www.youtube.com/watch?v=4b80vzwnJ8A)
+A small fix release after 2.2.1
 
-### New Behaviors and Features
+- LFO Uni- and Bi-polar waveforms align properly.
+- Randomization on the CXOR no longer goes out of bounds on type
+- Quad LFO Independent Mode triggers corrected so they use individual
+  triggers as opposed to mistakenly using trigger 0
+- Allow code to build in some non-VCV-rack compiler and configuration settings
+- Upgrade the connector library to allow in-row connection
+- Some tweaks to the ringmod, including changing display when connecting and
+  disconnecting
+- FX sidechains participate in neighbor inputs
+- RingMod deactivates useless controls when sideband attached
 
-- Port right mouse buttons have all sorts of neat things I need to document
-- EGxVCA EOC can send a trigger on any transition not just EOC, or on
-  all transitions
 
-### Bug Fixes 
-
-- Correct The Mixer Tooltip labels
-- Adjust the path to SIMDE to be absolute path

@@ -3,7 +3,7 @@
  *
  * A set of modules expressing Surge XT into the VCV Rack Module Ecosystem
  *
- * Copyright 2019 - 2023, Various authors, as described in the github
+ * Copyright 2019 - 2024, Various authors, as described in the github
  * transaction log.
  *
  * Surge XT for VCV Rack is released under the GNU General Public License
@@ -27,6 +27,7 @@
 #include <sst/waveshapers.h>
 #include "BiquadFilter.h"
 #include "sst/rackhelpers/neighbor_connectable.h"
+#include "sst/rackhelpers/json.h"
 
 namespace sst::surgext_rack::waveshaper
 {
@@ -146,6 +147,9 @@ struct Waveshaper : public modules::XTModule,
 
         modulationAssistant.initialize(this);
 
+        // initialize values, they can be used by the UI before processing if plugin is bypassed
+        modulationAssistant.updateValues(this);
+
         configBypass(INPUT_L, OUTPUT_L);
         configBypass(INPUT_R, OUTPUT_R);
     }
@@ -199,6 +203,7 @@ struct Waveshaper : public modules::XTModule,
     int lastPolyL{-2}, lastPolyR{-2};
     int monoChannelOffset{0};
 
+    std::atomic<int> displayPolyChannel{0};
     std::atomic<bool> doDCBlock{true};
     bool wasDoDCBlock{true};
     /*
@@ -585,6 +590,7 @@ struct Waveshaper : public modules::XTModule,
     {
         auto ws = json_object();
         json_object_set_new(ws, "doDCBlock", json_boolean(doDCBlock));
+        json_object_set_new(ws, "displayPolyChannel", json_integer(displayPolyChannel));
         return ws;
     }
 
@@ -600,6 +606,10 @@ struct Waveshaper : public modules::XTModule,
         {
             doDCBlock = true;
         }
+
+        auto pc = rackhelpers::json::jsonSafeGet<int>(modJ, "displayPolyChannel");
+        if (pc.has_value())
+            displayPolyChannel = *pc;
     }
 };
 

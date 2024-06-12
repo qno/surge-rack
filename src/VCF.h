@@ -3,7 +3,7 @@
  *
  * A set of modules expressing Surge XT into the VCV Rack Module Ecosystem
  *
- * Copyright 2019 - 2023, Various authors, as described in the github
+ * Copyright 2019 - 2024, Various authors, as described in the github
  * transaction log.
  *
  * Surge XT for VCV Rack is released under the GNU General Public License
@@ -27,6 +27,7 @@
 #include "globals.h"
 
 #include "sst/rackhelpers/neighbor_connectable.h"
+#include "sst/rackhelpers/json.h"
 
 namespace sst::surgext_rack::vcf
 {
@@ -185,6 +186,7 @@ struct VCF : public modules::XTModule, sst::rackhelpers::module_connector::Neigh
     sst::filters::FilterCoefficientMaker<SurgeStorage> coefMaker[MAX_POLY];
     float delayBuffer[nQFUs][4][sst::filters::utilities::MAX_FB_COMB +
                                 sst::filters::utilities::SincTable::FIRipol_N];
+    std::atomic<int> displayPolyChannel{0};
 
     void setupSurge()
     {
@@ -226,6 +228,20 @@ struct VCF : public modules::XTModule, sst::rackhelpers::module_connector::Neigh
             currentOutGain[i] = modulationAssistant.valuesSSE[OUT_GAIN][i];
             currentMix[i] = modulationAssistant.valuesSSE[MIX][i];
         }
+    }
+
+    json_t *makeModuleSpecificJson() override
+    {
+        auto vcf = json_object();
+        json_object_set_new(vcf, "displayPolyChannel", json_integer(displayPolyChannel));
+        return vcf;
+    }
+
+    void readModuleSpecificJson(json_t *modJ) override
+    {
+        auto pc = rackhelpers::json::jsonSafeGet<int>(modJ, "displayPolyChannel");
+        if (pc.has_value())
+            displayPolyChannel = *pc;
     }
 
     int processPosition;
@@ -327,7 +343,7 @@ struct VCF : public modules::XTModule, sst::rackhelpers::module_connector::Neigh
 
     void process(const typename rack::Module::ProcessArgs &args) override
     {
-        // auto fpuguard = sst::plugininfra::cpufeatures::FPUStateGuard();
+        auto fpuguard = sst::plugininfra::cpufeatures::FPUStateGuard();
 
         auto ftype = (sst::filters::FilterType)(int)(std::round(params[VCF_TYPE].getValue()));
         auto fsubtype =

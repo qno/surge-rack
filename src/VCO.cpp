@@ -3,7 +3,7 @@
  *
  * A set of modules expressing Surge XT into the VCV Rack Module Ecosystem
  *
- * Copyright 2019 - 2023, Various authors, as described in the github
+ * Copyright 2019 - 2024, Various authors, as described in the github
  * transaction log.
  *
  * Surge XT for VCV Rack is released under the GNU General Public License
@@ -236,10 +236,20 @@ template <int oscType> struct WavetableMenuBuilder
             "Download Extra Wavetable Content", "", [module]() { downloadExtraContent(module); },
             downloadingContent));
 
-        menu->addChild(rack::createMenuItem("Reveal User Wavetables Directory", "", [module]() {
-            module->storage->createUserDirectory(); // fine if it exists
-            rack::system::openDirectory((module->storage->userDataPath / "Wavetables").u8string());
-        }));
+        if (fs::is_directory(module->storage->userWavetablesPath))
+        {
+            menu->addChild(
+                rack::createMenuItem("Reveal VST User Wavetables Directory", "", [module]() {
+                    module->storage->createUserDirectory(); // fine if it exists
+                    rack::system::openDirectory((module->storage->userWavetablesPath).u8string());
+                }));
+        }
+
+        menu->addChild(
+            rack::createMenuItem("Reveal Rack User Wavetables Directory", "", [module]() {
+                module->guaranteeRackUserWavetablesDir();
+                rack::system::openDirectory((module->getRackUserWavetablesDir()).u8string());
+            }));
         menu->addChild(rack::createMenuItem("Rescan Wavetables", "",
                                             [module]() { module->forceRefreshWT = true; }));
     }
@@ -298,6 +308,21 @@ template <int oscType> struct VCOWidget : public widgets::XTModuleWidget
         }
     }
 
+    virtual void displayChannelMenu(rack::Menu *p, M *m)
+    {
+        if (!m)
+            return;
+
+        int cd = m->displayPolyChannel;
+
+        for (int i = 0; i < MAX_POLY; ++i)
+        {
+            auto name = std::string("Ch ") + std::to_string(i + 1);
+            p->addChild(rack::createMenuItem(name, CHECKMARK(i == cd),
+                                             [m, i] { m->displayPolyChannel = i; }));
+        }
+    }
+
     virtual void appendModuleSpecificMenu(rack::ui::Menu *menu) override
     {
         if (module)
@@ -348,6 +373,9 @@ template <int oscType> struct VCOWidget : public widgets::XTModuleWidget
             menu->addChild(rack::createMenuItem("Apply DC Blocker", CHECKMARK(m->doDCBlock),
                                                 [m]() { m->doDCBlock = !m->doDCBlock; }));
             VCOConfig<oscType>::addMenuItems(m, menu);
+            menu->addChild(new rack::MenuSeparator);
+            menu->addChild(rack::createSubmenuItem(
+                "Curve Poly Channel", "", [this, m](auto *x) { displayChannelMenu(x, m); }));
         }
     }
 
@@ -555,8 +583,10 @@ struct OSCPlotWidget : public rack::widget::TransparentWidget, style::StyleParti
 
     bool firstDirty{false};
     int dirtyCount{0};
+    int ppc{-1};
     int sumDeact{-1};
     int sumAbs{-1};
+    int sumExt{-1};
     int priorDeform[n_osc_params]{};
     int charF{-1};
     bool isOneShot{false};
@@ -575,7 +605,7 @@ struct OSCPlotWidget : public rack::widget::TransparentWidget, style::StyleParti
         bool dval{false};
         if (module)
         {
-            auto lSumDeact = 0, lSumAbs = 0;
+            auto lSumDeact = 0, lSumAbs = 0, lSumExtend = 0;
             for (int i = 0; i < n_osc_params; i++)
             {
                 auto *par = &(oscdata->p[i]);
@@ -590,21 +620,29 @@ struct OSCPlotWidget : public rack::widget::TransparentWidget, style::StyleParti
                 dval = dval || (tp[par->param_id_in_scene].i != tval.i);
                 lSumDeact += par->deactivated * (1 << i);
                 lSumAbs += par->absolute * (1 << i);
+                lSumExtend += par->extend_range * (1 << i);
 
                 dval = dval || (priorDeform[i] != par->deform_type);
                 priorDeform[i] = par->deform_type;
             }
 
-            if (lSumDeact != sumDeact || lSumAbs != sumAbs)
+            if (lSumDeact != sumDeact || lSumAbs != sumAbs || lSumExtend != sumExt)
             {
                 sumDeact = lSumDeact;
                 sumAbs = lSumAbs;
+                sumExt = lSumExtend;
                 dval = true;
             }
 
             if (charF != storage->getPatch().character.val.i)
             {
                 charF = storage->getPatch().character.val.i;
+                dval = true;
+            }
+
+            if (ppc != module->displayPolyChannel)
+            {
+                ppc = module->displayPolyChannel;
                 dval = true;
             }
 
@@ -630,6 +668,10 @@ struct OSCPlotWidget : public rack::widget::TransparentWidget, style::StyleParti
     {
         tp[oscdata->pitch.param_id_in_scene].f = 0;
 
+        auto ch = (int)module->displayPolyChannel;
+        if (ch >= module->polyChannelCount())
+            ch = 0;
+
         for (int i = 0; i < n_osc_params; i++)
         {
             auto *par = &(oscdata->p[i]);
@@ -638,7 +680,7 @@ struct OSCPlotWidget : public rack::widget::TransparentWidget, style::StyleParti
             if (par->valtype == vt_float && module->animateDisplayFromMod)
             {
                 tp[idis].f +=
-                    module->modAssist.modvalues[i + 1][0] * (par->val_max.f - par->val_min.f);
+                    module->modAssist.modvalues[i + 1][ch] * (par->val_max.f - par->val_min.f);
             }
         }
 
@@ -1367,7 +1409,7 @@ VCOWidget<oscType>::VCOWidget(VCOWidget<oscType>::M *module) : XTModuleWidget()
 
     engine_t::addModulationSection(this, M::n_mod_inputs, M::OSC_MOD_INPUT);
 
-    engine_t ::createLeftRightInputLabels(this, "V/OCT", "");
+    engine_t::createLeftRightInputLabels(this, "V/OCT", "");
     engine_t::createInputOutputPorts(this, M::PITCH_CV, M::RETRIGGER, M::OUTPUT_L, M::OUTPUT_R);
 
     // Special input 2 label is dynamic for WT. This is a wee bit of a generatlization

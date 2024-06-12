@@ -3,7 +3,7 @@
  *
  * A set of modules expressing Surge XT into the VCV Rack Module Ecosystem
  *
- * Copyright 2019 - 2023, Various authors, as described in the github
+ * Copyright 2019 - 2024, Various authors, as described in the github
  * transaction log.
  *
  * Surge XT for VCV Rack is released under the GNU General Public License
@@ -47,6 +47,7 @@ struct LayoutItem
         LCD_MENU_ITEM_SURGE_PARAM,
         POWER_LIGHT,
         EXTEND_LIGHT,
+        VINTAGE_LIGHT,
         ERROR
     } type{ERROR};
     std::string label{"ERR"};
@@ -58,6 +59,8 @@ struct LayoutItem
     bool skipModulation{false};
     bool dynamicLabel{false};
     std::function<std::string(modules::XTModule *m)> dynLabelFn{nullptr};
+
+    std::function<bool(modules::XTModule *m)> dynamicDeactivateFn{nullptr};
 
     static LayoutItem createLCDArea(float ht)
     {
@@ -138,10 +141,10 @@ struct LayoutItem
         return res;
     }
 
-    static LayoutItem createVCOLight(Type t, int param, int row, int col)
+    static LayoutItem createVCOLight(Type t, int param, int row, int col, bool upperRight = true)
     {
         auto res = createVCOItem(t, param, "", row, col);
-        res.spanmm = 1;
+        res.spanmm = upperRight ? 1 : -1;
         return res;
     }
 
@@ -283,6 +286,7 @@ template <typename W, int param0, int clockId = -1> struct LayoutEngine
             }
             if (knob)
             {
+                knob->dynamicDeactivateFn = lay.dynamicDeactivateFn;
                 w->addChild(knob->asWidget());
                 auto boxx0 = lay.xcmm - lc::columnWidth_MM * 0.5 - halfSize;
                 auto boxy0 = lay.ycmm + 8.573 + halfSize - 5;
@@ -431,6 +435,21 @@ template <typename W, int param0, int clockId = -1> struct LayoutEngine
                 lay.parId);
             w->addChild(port);
 
+            if (lay.extras.find("mixmaster") != lay.extras.end())
+            {
+                auto sp = lay.extras.find("stereo_pair");
+                if (sp == lay.extras.end())
+                {
+                    std::cout << "MIX MASTER PORT WITHOUT STEREO PAIR IN EXTRAS" << std::endl;
+                    std::terminate();
+                }
+                else
+                {
+                    port->connectAsInputFromMixmaster = true;
+                    port->mixMasterStereoCompanion = (int)std::round(sp->second);
+                }
+            }
+
             auto boxx0 = lay.xcmm - lc::columnWidth_MM * 0.5;
             auto boxy0 = lay.ycmm + 8.573 - 5;
 
@@ -473,6 +492,7 @@ template <typename W, int param0, int clockId = -1> struct LayoutEngine
         break;
         case LayoutItem::POWER_LIGHT:
         case LayoutItem::EXTEND_LIGHT:
+        case LayoutItem::VINTAGE_LIGHT:
         {
             auto dir = lay.spanmm < 0 ? -1 : 1;
             auto as = abs(lay.spanmm);
@@ -485,6 +505,10 @@ template <typename W, int param0, int clockId = -1> struct LayoutEngine
             if (lay.type == LayoutItem::EXTEND_LIGHT)
             {
                 light->type = widgets::ActivateKnobSwitch::EXTENDED;
+            }
+            if (lay.type == LayoutItem::VINTAGE_LIGHT)
+            {
+                light->type = widgets::ActivateKnobSwitch::VINTAGE;
             }
             w->addChild(light);
         }
@@ -539,6 +563,7 @@ template <typename W, int param0, int clockId = -1> struct LayoutEngine
                 rack::Vec(xpos, ypos), rack::Vec(width, height), module, lay.parId);
             wid->upcaseDisplay = false;
             wid->centerDisplay = true;
+            wid->dynamicDeactivateFn = lay.dynamicDeactivateFn;
 
             if (sd == 0)
             {

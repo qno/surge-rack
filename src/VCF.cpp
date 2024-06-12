@@ -3,7 +3,7 @@
  *
  * A set of modules expressing Surge XT into the VCV Rack Module Ecosystem
  *
- * Copyright 2019 - 2023, Various authors, as described in the github
+ * Copyright 2019 - 2024, Various authors, as described in the github
  * transaction log.
  *
  * Surge XT for VCV Rack is released under the GNU General Public License
@@ -44,6 +44,32 @@ struct VCFWidget : widgets::XTModuleWidget
     {
         if (toggles[mod])
             toggles[mod]->onToggle(!toggles[mod]->pressedState);
+    }
+
+    void displayChannelMenu(rack::Menu *p, M *m)
+    {
+        if (!m)
+            return;
+
+        int cd = m->displayPolyChannel;
+
+        for (int i = 0; i < MAX_POLY; ++i)
+        {
+            auto name = std::string("Ch ") + std::to_string(i + 1);
+            p->addChild(rack::createMenuItem(name, CHECKMARK(i == cd),
+                                             [m, i] { m->displayPolyChannel = i; }));
+        }
+    }
+
+    void appendModuleSpecificMenu(rack::ui::Menu *menu) override
+    {
+        if (module)
+        {
+            menu->addChild(new rack::MenuSeparator);
+            menu->addChild(rack::createSubmenuItem(
+                "Curve Poly Channel", "",
+                [this, m = static_cast<VCF *>(module)](auto *x) { displayChannelMenu(x, m); }));
+        }
     }
 };
 
@@ -482,7 +508,7 @@ struct FilterPlotWidget : rack::widget::TransparentWidget, style::StyleParticipa
     }
 
     uint64_t lastOutbound{1};
-    float lastFreq{-1}, lastReso{-1}, lastTy{-1}, lastSub{-1}, lastGn{-1};
+    float lastFreq{-1}, lastReso{-1}, lastTy{-1}, lastSub{-1}, lastGn{-1}, lastDisplayPoly{-1};
 
     std::pair<std::vector<float>, std::vector<float>> responseCurve;
 #if SURGE_VCF_WITH_THREADED_ANALYSER
@@ -510,9 +536,12 @@ struct FilterPlotWidget : rack::widget::TransparentWidget, style::StyleParticipa
 
         if (style::XTStyle::getShowModulationAnimationOnDisplay())
         {
-            fr = module->modulationAssistant.values[VCF::FREQUENCY][0];
-            re = module->modulationAssistant.values[VCF::RESONANCE][0];
-            gn = module->modulationAssistant.values[VCF::IN_GAIN][0];
+            auto ch = (int)module->displayPolyChannel;
+            if (ch >= module->polyChannelCount())
+                ch = 0;
+            fr = module->modulationAssistant.values[VCF::FREQUENCY][ch];
+            re = module->modulationAssistant.values[VCF::RESONANCE][ch];
+            gn = module->modulationAssistant.values[VCF::IN_GAIN][ch];
         }
         else
         {
@@ -523,14 +552,17 @@ struct FilterPlotWidget : rack::widget::TransparentWidget, style::StyleParticipa
 
         auto ty = (int)std::round(module->params[VCF::VCF_TYPE].getValue());
         auto sty = (int)std::round(module->params[VCF::VCF_SUBTYPE].getValue());
+        int lp = module->displayPolyChannel;
 
-        if (fr != lastFreq || re != lastReso || ty != lastTy || sty != lastSub || gn != lastGn)
+        if (fr != lastFreq || re != lastReso || ty != lastTy || sty != lastSub || gn != lastGn ||
+            lp != lastDisplayPoly)
         {
             lastFreq = fr;
             lastReso = re;
             lastSub = sty;
             lastTy = ty;
             lastGn = gn;
+            lastDisplayPoly = lp;
             // Remeber our filters all focus on midi note 69
             analyzer->request(ty, sty, fr * 12 - 9, re, gn);
         }
